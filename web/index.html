@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RedCat Studio</title>
+<title>Data Studio</title>
 <meta name="theme-color" content="#0a0d13">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,7 @@
 
   <aside id="sidebar">
     <div class="brand">
-      <h1>RedCat Studio</h1>
+      <h1>Data Studio</h1>
       <div class="sub">сбор · поиск · анализ · правка</div>
     </div>
     <nav id="nav">
@@ -234,7 +234,7 @@
       <div class="grid2">
         <div class="card">
           <h3>Поля: доля заполненных значений</h3>
-          <div class="tiny muted" style="margin-bottom:9px">* — обязательное поле по описанию источника. Зелёный ≥ 90%, жёлтый 50–90%, красный &lt; 50%.</div>
+          <div class="tiny muted" style="margin-bottom:9px">* — обязательное поле по описанию источника. Зелёный ≥ 90%, жёлтый 50–90%, красный < 50%.</div>
           <div id="cFields"></div>
         </div>
         <div class="card">
@@ -365,7 +365,7 @@
         <h2>Источники API</h2>
         <span class="hint">каждый источник — JSON-файл, код менять не нужно</span>
         <div class="spacer"></div>
-        <button class="sm" onclick="App.newSource(false)">＋ Новый источник (Redcat)</button>
+        <button class="sm" onclick="App.newSource(false)">＋ Новый источник</button>
         <button class="sm" onclick="App.newSource(true)">＋ Новый внешний</button>
       </div>
       <div class="card">
@@ -427,7 +427,7 @@
       <div class="card">
         <h3>Подключённые источники</h3>
         <div class="tiny muted" style="margin-bottom:9px">
-          Redcat-источники из папки <code>sources/</code>.
+          Источники из папки <code>sources/</code>.
           Внешние — из <code>sources_external/</code>, они помечены
           <span class="pill info">внешний</span>.
         </div>
@@ -446,7 +446,7 @@
       </div>
     </section>
 
-        <!-- ВНЕШНИЕ -->
+    <!-- ВНЕШНИЕ -->
     <section class="view" id="view-external">
       <div class="page-head">
         <h2>Внешние источники</h2>
@@ -456,17 +456,17 @@
         <button class="sm" onclick="App.exportExternal('csv')">⬇ CSV</button>
         <button class="sm" onclick="App.exportExternal('json')">⬇ JSON</button>
         <button class="sm" onclick="App.runCrossCheck()"
-                title="Сравнить эту таблицу с Redcat-таблицей по правилам из cross_check в spec">
-          ⇄ Сверить с Redcat
+                title="Сравнить эту таблицу с основной таблицей по правилам из cross_check в spec">
+          ⇄ Сверить с источником
         </button>
         <button class="sm" onclick="App.loadExternalList()">↻ Обновить</button>
       </div>
       <div class="card tiny muted">
-        Источники, которые не относятся к Redcat. Хранятся в отдельной базе
-        <code>reports/external_data.db</code>, не пересекаются с данными Redcat
+        Источники, которые не относятся к основному набору. Хранятся в отдельной базе
+        <code>reports/external_data.db</code>, не пересекаются с основными данными
         и собираются независимо — командой
         <code>python redcat_scraper.py --only &lt;ключи&gt;</code>
-        или через вкладку «Сбор» (там они помечены).
+        или через вкладку «Сбор».
       </div>
       <div id="extEmpty" style="display:none"></div>
       <div class="split" id="extContent" style="display:none">
@@ -483,11 +483,11 @@
       </div>
 
       <div class="card" id="extCrossCheckCard" style="margin-top:14px">
-        <h3>Сверка с Redcat</h3>
+        <h3>Сверка с источником</h3>
         <div class="tiny muted" style="margin-bottom:10px">
           Настраивается в spec внешнего источника, секция <code>cross_check</code>:
           какие поля сопоставлять, какие метрики сравнивать, какая агрегация,
-          пороги классов. Нажмите <b>⇄ Сверить с Redcat</b> в шапке вкладки.
+          пороги классов. Нажмите <b>⇄ Сверить с источником</b> в шапке вкладки.
         </div>
         <div id="extCrossCheck">
           <div class="muted tiny">
