@@ -1,0 +1,46 @@
+[
+  {
+    "key": "hc_by_type_3",
+    "title": "ЖК — тип объекта 3",
+    "enabled": false,
+    "url": "https://api.redcat.ai/api/v2/estate/housing_complexes?filter[country_id]={country_id}&filter[region_id]={region_id}&sort=created_at_desc&filter[active_in_admin]=true&filter[object_type_id]=3",
+    "id_field": "id",
+    "name_field": "name",
+    "group_fields": ["developer_name"],
+    "track_fields": ["developer_name", "deadline", "address"],
+    "required_fields": ["name"]
+  },
+  {
+    "key": "hc_by_type_5",
+    "title": "ЖК — тип объекта 5",
+    "enabled": false,
+    "url": "https://api.redcat.ai/api/v2/estate/housing_complexes?filter[country_id]={country_id}&filter[region_id]={region_id}&sort=created_at_desc&filter[active_in_admin]=true&filter[object_type_id]=5",
+    "id_field": "id",
+    "name_field": "name",
+    "group_fields": ["developer_name"],
+    "track_fields": ["developer_name", "deadline", "address"],
+    "required_fields": ["name"]
+  },
+  {
+    "key": "hc_by_type_7",
+    "title": "ЖК — тип объекта 7",
+    "enabled": false,
+    "url": "https://api.redcat.ai/api/v2/estate/housing_complexes?filter[country_id]={country_id}&filter[region_id]={region_id}&sort=created_at_desc&filter[active_in_admin]=true&filter[object_type_id]=7",
+    "id_field": "id",
+    "name_field": "name",
+    "group_fields": ["developer_name"],
+    "track_fields": ["developer_name", "deadline", "address"],
+    "required_fields": ["name"]
+  },
+  {
+    "key": "hc_by_type_8",
+    "title": "ЖК — тип объекта 8",
+    "enabled": false,
+    "url": "https://api.redcat.ai/api/v2/estate/housing_complexes?filter[country_id]={country_id}&filter[region_id]={region_id}&sort=created_at_desc&filter[active_in_admin]=true&filter[object_type_id]=8",
+    "id_field": "id",
+    "name_field": "name",
+    "group_fields": ["developer_name"],
+    "track_fields": ["developer_name", "deadline", "address"],
+    "required_fields": ["name"]
+  }
+]

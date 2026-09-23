@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RedCat Studio</title>
+<meta name="theme-color" content="#0a0d13">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;650;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐈‍⬛</text></svg>">
+</head>
+<body>
+<div id="app">
+
+  <aside id="sidebar">
+    <div class="brand">
+      <h1>RedCat Studio</h1>
+      <div class="sub">сбор · поиск · анализ · правка</div>
+    </div>
+    <nav id="nav">
+      <a data-view="overview" class="active"><span class="ico">📊</span><span class="txt">Обзор</span></a>
+      <a data-view="data"><span class="ico">🗃️</span><span class="txt">Данные</span></a>
+      <a data-view="search"><span class="ico">🔍</span><span class="txt">Поиск</span></a>
+      <a data-view="analytics"><span class="ico">📈</span><span class="txt">Аналитика</span></a>
+      <a data-view="quality"><span class="ico">🧪</span><span class="txt">Качество</span></a>
+      <a data-view="completeness"><span class="ico">🧩</span><span class="txt">Заполненность</span><span class="badge" id="badgeComp"></span></a>
+      <a data-view="checks"><span class="ico">🩺</span><span class="txt">Проверки</span><span class="badge" id="badgeChecks"></span></a>
+      <a data-view="changes"><span class="ico">🔄</span><span class="txt">Изменения</span></a>
+      <a data-view="edits"><span class="ico">✏️</span><span class="txt">Мои правки</span><span class="badge" id="badgeEdits"></span></a>
+      <a data-view="collect"><span class="ico">📡</span><span class="txt">Сбор</span></a>
+      <a data-view="sources"><span class="ico">🔌</span><span class="txt">Источники</span></a>
+      <a data-view="external"><span class="ico">📦</span><span class="txt">Внешние</span></a>
+      <a data-view="sql"><span class="ico">⌨️</span><span class="txt">SQL</span></a>
+      <a data-view="apilog"><span class="ico">🔒</span><span class="txt">Журнал API</span></a>
+    </nav>
+    <div class="guard-box">
+      <b>Режим: только чтение.</b><br>
+      В API уходят исключительно GET-запросы. PUT / POST / PATCH / DELETE
+      заблокированы на уровне кода. Ваши правки хранятся локально.
+    </div>
+  </aside>
+
+  <main>
+    <!-- ОБЗОР -->
+    <section class="view active" id="view-overview">
+      <div class="page-head">
+        <h2>Обзор</h2>
+        <span class="hint" id="overviewHint"></span>
+        <div class="spacer"></div>
+        <button onclick="App.loadOverview()">↻ Обновить</button>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid2" id="overviewCharts"></div>
+      <div class="card">
+        <h3>Таблицы данных</h3>
+        <div id="tableList"></div>
+      </div>
+      <div class="card">
+        <h3>Файлы выгрузок</h3>
+        <div id="fileList" class="tiny"></div>
+      </div>
+    </section>
+
+    <!-- ДАННЫЕ -->
+    <section class="view" id="view-data">
+      <div class="page-head">
+        <h2>Данные</h2>
+        <select id="dataTable" onchange="App.switchTable(this.value)"></select>
+        <span class="hint" id="dataCount"></span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.toggleFilters()">⚙ Фильтры</button>
+        <button class="sm" onclick="App.openColumns()">▦ Колонки</button>
+        <button class="sm" onclick="App.openBulk()">✏️ Массовая правка</button>
+        <button class="sm" onclick="App.saveView()">💾 Сохранить вид</button>
+        <button class="sm" onclick="App.exportData('csv')">⬇ CSV</button>
+        <button class="sm" onclick="App.exportData('json')">⬇ JSON</button>
+      </div>
+
+      <div class="card" id="filterPanel" style="display:none">
+        <h3>Фильтры</h3>
+        <div id="filterRows"></div>
+        <div class="row" style="margin-top:9px">
+          <button class="sm" onclick="App.addFilter()">＋ Условие</button>
+          <label class="inline">объединять:
+            <select id="filterMatch" onchange="App.reload()" style="padding:3px 7px">
+              <option value="AND">все условия (И)</option>
+              <option value="OR">любое условие (ИЛИ)</option>
+            </select>
+          </label>
+          <label class="inline"><input type="checkbox" id="showHidden" onchange="App.reload()"> показывать скрытые</label>
+          <label class="inline">показать:
+            <select id="onlyMode" onchange="App.reload()" style="padding:3px 7px">
+              <option value="">все записи</option>
+              <option value="starred">только избранное</option>
+              <option value="edited">только изменённые мной</option>
+            </select>
+          </label>
+          <div class="spacer"></div>
+          <button class="sm" onclick="App.clearFilters()">Сбросить</button>
+          <button class="sm primary" onclick="App.reload()">Применить</button>
+        </div>
+        <div id="savedViews" class="row tight" style="margin-top:11px"></div>
+      </div>
+
+      <div class="split">
+        <div class="card" id="facetPanel">
+          <h3>Быстрые срезы</h3>
+          <select id="facetField" onchange="App.loadFacets()" style="width:100%;margin-bottom:9px"></select>
+          <div id="facetList" class="tiny"></div>
+        </div>
+        <div>
+          <div class="table-wrap"><table id="dataTableEl"><thead></thead><tbody></tbody></table></div>
+          <div class="pager" id="dataPager"></div>
+          <div class="tiny muted" style="margin-top:7px">
+            Двойной клик по ячейке — правка. Правки хранятся у вас на диске
+            и никогда не отправляются в API.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ПОИСК -->
+    <section class="view" id="view-search">
+      <div class="page-head">
+        <h2>Поиск по всем данным</h2>
+        <div class="spacer"></div>
+        <span class="hint" id="searchMeta"></span>
+        <button class="sm" onclick="App.rebuildIndex()">⟳ Перестроить индекс</button>
+      </div>
+      <div class="card">
+        <div class="row">
+          <input id="searchInput" placeholder="Например: солнечный чистовая 2027" style="flex:1;min-width:260px"
+                 onkeydown="if(event.key==='Enter')App.runSearch()">
+          <select id="searchSource"><option value="">везде</option></select>
+          <button class="primary" onclick="App.runSearch()">Найти</button>
+        </div>
+        <div class="tiny muted" style="margin-top:8px">
+          Ищет по всем текстовым полям всех таблиц сразу. Слова можно вводить
+          частично: «солне» найдёт «Солнечный».
+        </div>
+      </div>
+      <div id="searchResults"></div>
+    </section>
+
+    <!-- АНАЛИТИКА -->
+    <section class="view" id="view-analytics">
+      <div class="page-head">
+        <h2>Аналитика</h2>
+        <select id="anTable" onchange="App.analyticsTableChanged()"></select>
+        <span class="hint">учитывает фильтры со вкладки «Данные»</span>
+        <div class="spacer"></div>
+        <label class="inline"><input type="checkbox" id="anUseFilters" checked> применять фильтры</label>
+      </div>
+      <div class="tabs" id="anTabs">
+        <button class="active" data-an="pivot">Сводная</button>
+        <button data-an="summary">Сводка по группам</button>
+        <button data-an="cross">Таблица × таблица</button>
+        <button data-an="trend">Динамика по дате</button>
+        <button data-an="corr">Связь полей</button>
+        <button data-an="pareto">Парето (ABC)</button>
+        <button data-an="hist">Распределение</button>
+        <button data-an="top">Топ / антитоп</button>
+        <button data-an="outliers">Выбросы</button>
+        <button data-an="dupes">Дубликаты</button>
+      </div>
+      <div id="anPanel"></div>
+      <div id="anResult"></div>
+    </section>
+
+    <!-- КАЧЕСТВО -->
+    <section class="view" id="view-quality">
+      <div class="page-head">
+        <h2>Качество данных</h2>
+        <select id="qTable" onchange="App.loadQuality()"></select>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.loadQuality()">↻ Пересчитать</button>
+      </div>
+      <div class="card">
+        <h3>Профиль колонок</h3>
+        <div class="tiny muted" style="margin-bottom:10px">
+          Заполненность, уникальность и разброс по каждой колонке. Низкая
+          заполненность у важного поля — повод не доверять расчётам по нему.
+        </div>
+        <div id="qualityTable"></div>
+      </div>
+      <div class="card">
+        <h3>Найденные аномалии</h3>
+        <div class="row" style="margin-bottom:10px">
+          <select id="anomSeverity" onchange="App.loadAnomalies()">
+            <option value="">любая важность</option>
+            <option value="critical">критичные</option>
+            <option value="warning">предупреждения</option>
+            <option value="info">информационные</option>
+          </select>
+        </div>
+        <div id="anomalyList"></div>
+      </div>
+    </section>
+
+    <!-- ЗАПОЛНЕННОСТЬ -->
+    <section class="view" id="view-completeness">
+      <div class="page-head">
+        <h2>Заполненность данных</h2>
+        <select id="cTable" onchange="App.loadCompleteness()"></select>
+        <span class="hint">по полям, по записям и в разрезе групп</span>
+        <div class="spacer"></div>
+        <label class="inline">запись проблемная ниже
+          <input id="cThreshold" type="number" value="80" min="10" max="100"
+                 style="width:64px" onchange="App.loadCompleteness()"> %
+        </label>
+        <button class="sm" onclick="App.exportCompleteness('fields', 'csv')"
+                title="Заполненность полей: поле, доля заполненных, пусто, уникальных, минимум/медиана/максимум">
+          ⬇ Поля (CSV)
+        </button>
+        <button class="sm" onclick="App.exportCompleteness('records', 'csv')"
+                title="Записи ниже порога: id, название, % заполненности и список недостающих полей">
+          ⬇ Записи (CSV)
+        </button>
+        <button class="sm" onclick="App.exportCompleteness('records', 'json')"
+                title="То же, но в JSON">
+          ⬇ JSON
+        </button>
+        <button class="sm" onclick="App.loadCompleteness()">↻ Пересчитать</button>
+      </div>
+      <div class="card tiny muted">
+        Полнота сбора (сколько записей догрузилось) смотрите на вкладке «Проверки».
+        Здесь другое измерение: насколько у самих записей заполнены поля.
+        Общий процент взвешенный — обязательные поля из описания источника
+        весят больше опциональных.
+      </div>
+      <div class="kpis" id="cKpis"></div>
+      <div class="grid2">
+        <div class="card">
+          <h3>Поля: доля заполненных значений</h3>
+          <div class="tiny muted" style="margin-bottom:9px">* — обязательное поле по описанию источника. Зелёный ≥ 90%, жёлтый 50–90%, красный &lt; 50%.</div>
+          <div id="cFields"></div>
+        </div>
+        <div class="card">
+          <h3>Записи ниже порога: чего не хватает</h3>
+          <div id="cRecords"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>В разрезе групп</h3>
+        <div class="row" style="margin-bottom:11px">
+          <label class="field">группировать по
+            <select id="cGroupField" onchange="App.loadCompletenessGroups()"></select>
+          </label>
+        </div>
+        <div id="cGroups"></div>
+      </div>
+    </section>
+
+    <!-- СКВОЗНЫЕ ПРОВЕРКИ -->
+    <section class="view" id="view-checks">
+      <div class="page-head">
+        <h2>Сквозные проверки</h2>
+        <span class="hint">сходятся ли таблицы между собой и вся ли информация на месте</span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.loadChecks()">↻ Перепроверить</button>
+      </div>
+      <div class="card tiny muted">
+        Поиск аномалий смотрит на необычное внутри одной таблицы. Здесь другое:
+        проверяется, сходятся ли таблицы друг с другом и не потерялась ли часть
+        данных при сборе. Такие поломки не выглядят странно — просто цифры
+        меньше, чем должны быть, и по ним делают неверные выводы.
+      </div>
+      <div id="checksVerdict"></div>
+      <div id="checksList"></div>
+      <div class="card">
+        <h3>Найденные связи между таблицами</h3>
+        <div class="tiny muted" style="margin-bottom:9px">
+          Определяются автоматически — по описаниям источников и по именам
+          колонок. Работают и для источников, которые вы добавили сами.
+        </div>
+        <div id="checksRelations"></div>
+      </div>
+    </section>
+
+    <!-- ИЗМЕНЕНИЯ -->
+    <section class="view" id="view-changes">
+      <div class="page-head">
+        <h2>Изменения между запусками</h2>
+        <div class="spacer"></div>
+        <input id="changeSearch" placeholder="фильтр по названию/ID" oninput="App.renderChanges()">
+        <select id="changeKind" onchange="App.renderChanges()">
+          <option value="">все категории</option>
+          <option value="Новая">новые</option>
+          <option value="пропала">пропавшие</option>
+          <option value="Изменение">изменения полей</option>
+        </select>
+      </div>
+      <div id="changesBox"></div>
+    </section>
+
+    <!-- ПРАВКИ -->
+    <section class="view" id="view-edits">
+      <div class="page-head">
+        <h2>Мои правки</h2>
+        <span class="hint">локальная копия — в API ничего не отправляется</span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.exportEdits('csv')">⬇ CSV</button>
+        <button class="sm" onclick="App.exportEdits('json')">⬇ JSON</button>
+        <button class="sm" onclick="App.loadEdits()">↻</button>
+      </div>
+      <div class="card tiny muted">
+        Здесь всё, что вы поправили вручную. Список можно выгрузить и передать
+        тому, кто вносит изменения в первоисточник — приложение этого не делает
+        и не может: запись в API заблокирована.
+      </div>
+      <div id="editsBox"></div>
+    </section>
+
+    <!-- СБОР -->
+    <section class="view" id="view-collect">
+      <div class="page-head">
+        <h2>Сбор данных</h2>
+        <div class="spacer"></div>
+        <span id="tokenPill"></span>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h3>Токен доступа</h3>
+          <div class="row">
+            <input id="tokenInput" placeholder="eyJ..." style="flex:1">
+            <button onclick="App.saveToken()">Сохранить</button>
+          </div>
+          <div class="tiny muted" style="margin-top:8px">
+            Сохраняется в файл .env рядом с приложением. Используется только
+            для заголовка Authorization в GET-запросах.
+          </div>
+        </div>
+        <div class="card">
+          <h3>Параметры запуска</h3>
+          <div class="row">
+            <label class="field">источники
+              <select id="runOnly" multiple size="4" style="min-width:190px"></select>
+            </label>
+            <div>
+              <label class="inline"><input type="checkbox" id="runExcel"> писать Excel</label><br>
+              <label class="inline"><input type="checkbox" id="runNoAnom"> без поиска аномалий</label><br>
+              <label class="field" style="margin-top:7px">параллельность
+                <input id="runConc" type="number" min="1" max="32" placeholder="из настроек" style="width:110px">
+              </label>
+            </div>
+          </div>
+          <div class="row" style="margin-top:11px">
+            <button class="primary" id="btnRun" onclick="App.startRun()">▶ Запустить сбор</button>
+            <button id="btnStop" onclick="App.stopRun()" disabled>⏹ Остановить</button>
+            <span class="hint" id="runState"></span>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Живой лог</h3>
+        <pre class="log" id="runLog">Сбор ещё не запускался.</pre>
+      </div>
+    </section>
+
+    <!-- ИСТОЧНИКИ -->
+    <section class="view" id="view-sources">
+      <div class="page-head">
+        <h2>Источники API</h2>
+        <span class="hint">каждый источник — JSON-файл, код менять не нужно</span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.newSource(false)">＋ Новый источник (Redcat)</button>
+        <button class="sm" onclick="App.newSource(true)">＋ Новый внешний</button>
+      </div>
+      <div class="card">
+        <h3>Проверка эндпоинта</h3>
+        <div class="row">
+          <input id="probeUrl" placeholder="https://api.example.com/v1/items?region={region_id}" style="flex:1;min-width:280px">
+          <input id="probeKey" placeholder="ключ" style="width:130px">
+          <select id="probeStyle">
+            <option value="jsonapi">page[size] / page[number]</option>
+            <option value="simple">per_page / page</option>
+            <option value="offset">limit / offset</option>
+          </select>
+          <select id="probeMode">
+            <option value="http">обычный HTTP GET</option>
+            <option value="browser">через браузер (Playwright)</option>
+          </select>
+          <button class="primary" onclick="App.probe()">Проверить</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label class="field">ждать селектор
+            <input id="probeWaitFor" placeholder=".product-card" style="width:200px">
+          </label>
+          <label class="field">пауза после загрузки, мс
+            <input id="probeWaitMs" type="number" min="0" max="20000" value="0" style="width:110px">
+          </label>
+          <label class="inline"><input type="checkbox" id="probeExternal"> сохранить как внешний источник</label>
+        </div>
+        <div class="tiny muted" style="margin-top:8px">
+          HTTP GET — по умолчанию. Через браузер — для сайтов, которым нужен
+          JS, куки или защита от бота. Ждать селектор нужно, если содержимое
+          рисуется скриптом и появляется не сразу.
+        </div>
+        <div id="probeResult"></div>
+      </div>
+      <div class="card">
+        <h3>Загрузка CSV пачками</h3>
+        <div class="tiny muted" style="margin-bottom:9px">
+          Свои данные без похода в API. Файл читается в браузере и заливается
+          частями по 1000 строк за запрос, поэтому большие файлы не роняют ни
+          браузер, ни сервер. Результат появляется в списке ниже и на вкладке
+          «Внешние». «Заменить» — старые данные под этим именем удаляются,
+          «Добавить» — новые строки дописываются к уже загруженным.
+        </div>
+        <div class="row">
+          <input type="file" id="csvFile" accept=".csv,text/csv"
+                 onchange="App.onCsvFilePicked(this.files[0])">
+          <input id="csvTableName" placeholder="имя_таблицы" style="width:200px">
+          <select id="csvMode">
+            <option value="append">Добавить к существующей</option>
+            <option value="replace">Заменить целиком</option>
+          </select>
+          <button class="primary" id="csvUploadBtn" onclick="App.uploadCsv()" disabled>Загрузить</button>
+        </div>
+        <div id="csvUploadProgress" style="display:none;margin-top:10px">
+          <div class="bar-track"><div class="bar-fill" id="csvProgressFill" style="width:0%"></div></div>
+          <div class="tiny muted" id="csvProgressText" style="margin-top:5px"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Подключённые источники</h3>
+        <div class="tiny muted" style="margin-bottom:9px">
+          Redcat-источники из папки <code>sources/</code>.
+          Внешние — из <code>sources_external/</code>, они помечены
+          <span class="pill info">внешний</span>.
+        </div>
+        <div id="sourceList"></div>
+      </div>
+      <div class="card" id="sourceEditorCard" style="display:none">
+        <h3>Редактор описания</h3>
+        <div class="row" style="margin-bottom:9px">
+          <input id="sourceFile" placeholder="имя_файла.json" style="width:230px">
+          <label class="inline"><input type="checkbox" id="sourceExternal"> внешний (в sources_external/)</label>
+          <div class="spacer"></div>
+          <button onclick="App.saveSourceRaw()" class="primary">Сохранить</button>
+          <button onclick="document.getElementById('sourceEditorCard').style.display='none'">Закрыть</button>
+        </div>
+        <textarea id="sourceEditor" rows="20"></textarea>
+      </div>
+    </section>
+
+        <!-- ВНЕШНИЕ -->
+    <section class="view" id="view-external">
+      <div class="page-head">
+        <h2>Внешние источники</h2>
+        <select id="extTable" onchange="App.switchExternal(this.value)"></select>
+        <span class="hint" id="extCount"></span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.exportExternal('csv')">⬇ CSV</button>
+        <button class="sm" onclick="App.exportExternal('json')">⬇ JSON</button>
+        <button class="sm" onclick="App.runCrossCheck()"
+                title="Сравнить эту таблицу с Redcat-таблицей по правилам из cross_check в spec">
+          ⇄ Сверить с Redcat
+        </button>
+        <button class="sm" onclick="App.loadExternalList()">↻ Обновить</button>
+      </div>
+      <div class="card tiny muted">
+        Источники, которые не относятся к Redcat. Хранятся в отдельной базе
+        <code>reports/external_data.db</code>, не пересекаются с данными Redcat
+        и собираются независимо — командой
+        <code>python redcat_scraper.py --only &lt;ключи&gt;</code>
+        или через вкладку «Сбор» (там они помечены).
+      </div>
+      <div id="extEmpty" style="display:none"></div>
+      <div class="split" id="extContent" style="display:none">
+        <div class="card">
+          <h3>Профиль колонок</h3>
+          <div id="extProfile" class="tiny"></div>
+        </div>
+        <div>
+          <div class="table-wrap">
+            <table id="extTableEl"><thead></thead><tbody></tbody></table>
+          </div>
+          <div class="pager" id="extPager"></div>
+        </div>
+      </div>
+
+      <div class="card" id="extCrossCheckCard" style="margin-top:14px">
+        <h3>Сверка с Redcat</h3>
+        <div class="tiny muted" style="margin-bottom:10px">
+          Настраивается в spec внешнего источника, секция <code>cross_check</code>:
+          какие поля сопоставлять, какие метрики сравнивать, какая агрегация,
+          пороги классов. Нажмите <b>⇄ Сверить с Redcat</b> в шапке вкладки.
+        </div>
+        <div id="extCrossCheck">
+          <div class="muted tiny">
+            Отчёт появится здесь: сводка по классам, таблицы расхождений,
+            группы «только слева / только справа».
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SQL -->
+    <section class="view" id="view-sql">
+      <div class="page-head">
+        <h2>SQL-консоль</h2>
+        <span class="hint">только SELECT — данные не изменяются</span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="App.exportSql()">⬇ Выгрузить результат</button>
+        <button class="primary sm" onclick="App.runSql()">▶ Выполнить (Ctrl+Enter)</button>
+      </div>
+      <div class="split">
+        <div class="card">
+          <h3>Схема</h3>
+          <div id="sqlSchema" class="tiny"></div>
+          <h3 style="margin-top:14px">Примеры</h3>
+          <div id="sqlSamples" class="tiny"></div>
+        </div>
+        <div>
+          <textarea id="sqlInput" rows="8" spellcheck="false"
+            placeholder="SELECT developer_name, COUNT(*) AS lots FROM apartments GROUP BY 1 ORDER BY lots DESC"></textarea>
+          <div id="sqlResult" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ЖУРНАЛ API -->
+    <section class="view" id="view-apilog">
+      <div class="page-head">
+        <h2>Журнал обращений к API</h2>
+        <div class="spacer"></div>
+        <label class="inline"><input type="checkbox" id="logBlocked" onchange="App.loadApiLog()"> только заблокированные</label>
+        <button class="sm" onclick="App.loadApiLog()">↻</button>
+      </div>
+      <div class="card" id="guardCard"></div>
+      <div id="apiLogBox"></div>
+    </section>
+  </main>
+</div>
+
+<div id="drawer"></div>
+<div id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>

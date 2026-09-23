@@ -1,0 +1,88 @@
+{
+  "key": "a101_apartments",
+  "title": "А101 — квартиры",
+  "external": true,
+  "url": "https://a101.ru/api/flats/?order=actual_price&limit=100",
+  "page_size": 100,
+  "page_size_param": "limit",
+  "page_number_param": "offset",
+  "next_link_path": ["next"],
+  "data_path": ["results"],
+  "total_path": ["count"],
+  "split_param": "project",
+  "split_values_from": "a101_complexes",
+  "split_values_field": "slug",
+  "split_child_name_field": "project",
+  "split_values_name_field": "title",
+  "concurrency": 3,
+  "flatten_depth": 2,
+  "id_field": "id",
+  "name_field": "number",
+  "mapping": {
+    "external_id": "id",
+    "number": "number",
+    "article": "article",
+    "project_name": "project",
+    "project_commercial": "project_commercial",
+    "project_slug": "project_slug",
+    "project_group_name": "project_group.name",
+    "building": "building",
+    "building_number": "building_number",
+    "building_realized": "building_realized",
+    "section_number": "section_number",
+    "floor": "floor",
+    "max_floor": "max_floor",
+    "status": "status",
+    "room": "room",
+    "room_name": "room_name",
+    "studio": "studio",
+    "euro": "euro",
+    "area": "area",
+    "ceiling_height": "ceiling_height",
+    "price": "price",
+    "actual_price": "actual_price",
+    "ppm": "ppm",
+    "actual_ppm": "actual_ppm",
+    "base_price": "base_price",
+    "special_price": "special_price",
+    "sale_value": "sale_value",
+    "mortgage_min_payment": "mortgage_min_payment",
+    "stage": "stage",
+    "building_stage_rve_date": "building_stage_rve_date",
+    "realty_class": "realty_class",
+    "type": "type",
+    "has_balcony": "has_balcony",
+    "has_terrace": "has_terrace",
+    "is_two_level": "is_two_level",
+    "view_apartment": "view_apartment"
+  },
+  "numeric_fields": [
+    "area", "ceiling_height", "price", "actual_price", "ppm", "actual_ppm",
+    "base_price", "special_price", "sale_value", "mortgage_min_payment",
+    "room", "floor", "max_floor", "status"
+  ],
+  "group_fields": ["project_name", "room_name", "realty_class"],
+  "track_fields": ["price", "actual_price", "status"],
+  "positive_fields": ["price", "area", "actual_price"],
+  "required_fields": ["external_id", "project_name", "area", "price"],
+
+  "derived": {
+    "sale_price": "special_price or actual_price or price"
+  },
+
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "project_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "sale_price": "price",
+      "area": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "min_group_size": 10,
+    "thresholds": {"ok": 10, "warn": 20},
+    "filter_right": {"field": "developer_name", "op": "eq", "value": "ГК А101"}
+  }
+}
+
