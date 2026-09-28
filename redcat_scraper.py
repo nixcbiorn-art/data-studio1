@@ -36,6 +36,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import urllib.parse
 from dataclasses import replace as _dc_replace
@@ -642,37 +643,65 @@ def _norm_name(v):
     return " ".join(str(v).split()).casefold() if v not in (None, "") else None
 
 
+def _total_of(data, spec):
+    """Общее число записей из ответа _fetch_json (unified или сырой JSON)."""
+    if not isinstance(data, dict):
+        return None
+    if "items" in data and "raw" in data:
+        total = data.get("total")
+        if isinstance(total, int) and not isinstance(total, bool):
+            return total
+        raw = data.get("raw")
+        return find_total(raw, spec) if raw is not None else None
+    return find_total(data, spec)
+
+
+def _rows_of(data, spec):
+    """Список записей из ответа _fetch_json (unified или сырой JSON)."""
+    if not isinstance(data, dict):
+        return None
+    if "items" in data and "raw" in data:
+        items = data.get("items")
+    else:
+        items = src.dig(data, spec.data_path)
+    return items if isinstance(items, list) else None
+
+
 async def preflight_check_split(base_url, sample_values, token, spec):
+    """Быстрая проверка параметра дробления на нескольких значениях.
+
+    Возвращает (ok, текст). ok=True, если фильтр реально фильтрует выдачу.
+    """
     if not sample_values:
         return True, None
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
     sep = "&" if "?" in base_url else "?"
-    base_data, _, _ = await _fetch_json(
-            unfiltered_url, session, f"preflight:{spec.key}", 0, spec=spec)
-    data, status, body = await _fetch_json(
-                url, session, f"preflight:{spec.key}", 1,
-                max_attempts=1, spec=spec)
     results = []
 
     async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+        # 1. Без фильтра: сколько всего записей в регионе.
         unfiltered_url = (f"{base_url}{sep}{spec.page_size_param}=1"
                           f"&{spec.page_number_param}=1")
         base_data, _, _ = await _fetch_json(
-            unfiltered_url, session, f"preflight:{spec.key}", 0)
-        unfiltered_total = find_total(base_data, spec) if base_data else None
+            unfiltered_url, session, f"preflight:{spec.key}", 0, spec=spec)
+        unfiltered_total = _total_of(base_data, spec)
 
+        # 2. Несколько значений фильтра. Два сбоя подряд — прекращаем.
         failed_in_row = 0
         for value in sample_values:
             url = (f"{base_url}{sep}{spec.split_param}={value}"
-                   f"&{spec.page_size_param}={spec.page_size}&{spec.page_number_param}=1")
+                   f"&{spec.page_size_param}={spec.page_size}"
+                   f"&{spec.page_number_param}=1")
             data, status, body = await _fetch_json(
-                url, session, f"preflight:{spec.key}", 1, max_attempts=1)
-            rows = src.dig(data, spec.data_path) if data else None
+                url, session, f"preflight:{spec.key}", 1,
+                max_attempts=1, spec=spec)
+            rows = _rows_of(data, spec)
             results.append({
-                "value": value, "ok": data is not None, "status": status, "body": body,
-                "rows": len(rows) if isinstance(rows, list) else None,
-                "total": find_total(data, spec) if data else None,
+                "value": value, "ok": data is not None,
+                "status": status, "body": body,
+                "rows": len(rows) if rows is not None else None,
+                "total": _total_of(data, spec),
             })
             failed_in_row = 0 if data is not None else failed_in_row + 1
             if failed_in_row >= 2:
@@ -686,6 +715,7 @@ async def preflight_check_split(base_url, sample_values, token, spec):
                          + (f": {r['body']}" if r["body"] else " (без тела ответа)"))
         return False, "\n".join(lines)
 
+    # Фильтр игнорируется: с ним столько же записей, сколько без него.
     if unfiltered_total:
         ignored = [r for r in responded
                    if r["total"] is not None and r["total"] == unfiltered_total]
