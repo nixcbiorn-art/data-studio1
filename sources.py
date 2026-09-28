@@ -80,12 +80,11 @@ class SourceSpec:
     browser_wait_for: str = ""
     browser_wait_ms: int = 0
     browser_headless: bool = True
-
-
+    
     # --- формат ответа ---
     format: str = "json"              # "json" или "xml" (YRL-фиды)
     xml_record_tag: str = "offer"     # имя тега одной записи в XML
-
+    
     # --- инкрементальный сбор ---
     # Если incremental_param задан — скрапер при наличии сохранённого
     # состояния добавит к URL &<incremental_param>=<last_success-lookback>.
@@ -309,8 +308,7 @@ def _a101_unique_projects(payload, split_value=None):
     лежит на верхнем уровне каждой записи.
     """
     seen = {}
-    items = ((payload or {}).get("results")
-             or (payload or {}).get("items") or [])
+    items = (payload or {}).get("results") or (payload or {}).get("items") or []
     for item in items:
         slug = item.get("project_slug")
         if slug and slug not in seen:

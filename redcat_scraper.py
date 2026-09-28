@@ -526,27 +526,29 @@ async def preflight_check_split(base_url, sample_values, token, spec):
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
     sep = "&" if "?" in base_url else "?"
+    base_data, _, _ = await _fetch_json(
+            unfiltered_url, session, f"preflight:{spec.key}", 0, spec=spec)
+    data, status, body = await _fetch_json(
+                url, session, f"preflight:{spec.key}", 1,
+                max_attempts=1, spec=spec)
     results = []
 
     async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
         unfiltered_url = (f"{base_url}{sep}{spec.page_size_param}=1"
                           f"&{spec.page_number_param}=1")
         base_data, _, _ = await _fetch_json(
-            unfiltered_url, session, f"preflight:{spec.key}", 0, spec=spec)
+            unfiltered_url, session, f"preflight:{spec.key}", 0)
         unfiltered_total = find_total(base_data, spec) if base_data else None
 
         failed_in_row = 0
         for value in sample_values:
             url = (f"{base_url}{sep}{spec.split_param}={value}"
-                   f"&{spec.page_size_param}={spec.page_size}"
-                   f"&{spec.page_number_param}=1")
+                   f"&{spec.page_size_param}={spec.page_size}&{spec.page_number_param}=1")
             data, status, body = await _fetch_json(
-                url, session, f"preflight:{spec.key}", 1,
-                max_attempts=1, spec=spec)
+                url, session, f"preflight:{spec.key}", 1, max_attempts=1)
             rows = src.dig(data, spec.data_path) if data else None
             results.append({
-                "value": value, "ok": data is not None, "status": status,
-                "body": body,
+                "value": value, "ok": data is not None, "status": status, "body": body,
                 "rows": len(rows) if isinstance(rows, list) else None,
                 "total": find_total(data, spec) if data else None,
             })
@@ -574,12 +576,12 @@ async def preflight_check_split(base_url, sample_values, token, spec):
     empty = [r for r in responded if not r["rows"]]
     if len(empty) == len(responded):
         return False, (
-            f"Все {len(responded)} проверенных значений вернули 0 записей "
-            f"без ошибок.")
+            f"Все {len(responded)} проверенных значений вернули 0 записей без ошибок.")
 
     with_data = len(responded) - len(empty)
     return True, (f"фильтр работает: из {len(responded)} проб с данными {with_data}"
                   + (f", всего по региону {unfiltered_total}" if unfiltered_total else ""))
+
 
 async def _fetch_one_split(value, session, semaphore, spec, base_url):
     label = f"{spec.key}:{value}"
@@ -743,9 +745,12 @@ def probe_total(url, session, spec):
         return None
 
     try:
-        total = find_total(resp.json(), spec)
+        payload = (_parse_xml_response(resp.content, spec)
+                   if getattr(spec, "format", "json") == "xml"
+                   else resp.json())
+        total = find_total(payload, spec)
     except ValueError as e:
-        logging.warning("[%s] ответ не JSON: %s", spec.key, e)
+        logging.warning("[%s] ответ не распарсился: %s", spec.key, e)
         return None
 
     if total is None:
