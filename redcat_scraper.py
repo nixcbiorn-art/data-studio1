@@ -92,6 +92,7 @@ except ImportError:
 
 import anomalies as anomaly_lib
 import api_guard
+import rate_limit as _rl
 import quality
 import report_html
 import run_stats
@@ -180,54 +181,149 @@ MAX_RETRIES = int(os.environ.get("REDCAT_MAX_RETRIES", "3"))
 RETRY_DELAY_SEC = 2
 KEEP_RECORD_HISTORY_RUNS = int(os.environ.get("REDCAT_KEEP_HISTORY_RUNS", "30"))
 
-def _xml_elem_to_dict(elem):
-    """XML-элемент → dict.
 
-    Атрибуты (internal-id и т.п.) и текст кладутся на верхний уровень.
-    Повторяющиеся дочерние теги собираются в список. Namespace срезается.
-    """
-    result = dict(elem.attrib)
-    children = list(elem)
-    if not children:
-        text = (elem.text or "").strip()
-        if result:
-            if text:
-                result["#text"] = text
-            return result
-        return text or None
-    grouped = {}
-    for child in children:
-        tag = child.tag.split("}")[-1]
-        val = _xml_elem_to_dict(child)
-        if tag in grouped:
-            if not isinstance(grouped[tag], list):
-                grouped[tag] = [grouped[tag]]
-            grouped[tag].append(val)
-        else:
-            grouped[tag] = val
-    result.update(grouped)
-    return result
+# ──────────────────────────────────────────────────────────────
+#  ГЛОБАЛЬНЫЕ СТРУКТУРЫ ЗАЩИТЫ ОТ БАНА
+# ──────────────────────────────────────────────────────────────
+DEFAULT_RATE_RPS = float(os.environ.get("REDCAT_RATE_LIMIT_RPS", "0") or "0")
+DEFAULT_CIRCUIT_FAILURES = int(os.environ.get("REDCAT_CIRCUIT_FAILURES", "8") or "8")
+DEFAULT_CIRCUIT_COOLDOWN = int(os.environ.get("REDCAT_CIRCUIT_COOLDOWN", "300") or "300")
+
+_RATE_LIMITERS = _rl.HostRateLimiters(default_rps=DEFAULT_RATE_RPS)
+_CIRCUIT_BREAKERS: dict = {}
+_BREAKER_LOCK = threading.Lock()
+if DEFAULT_RATE_RPS > 0:
+    print(f"🐢 Лимит частоты: {DEFAULT_RATE_RPS:g} запросов/сек на хост "
+          f"(можно отключить: REDCAT_RATE_LIMIT_RPS=0 в .env)")
 
 
-def _parse_xml_response(content, spec):
-    """Парсит XML-фид (YRL, RSS и т.п.), возвращает {'items': [...], 'total': N}.
+def _breaker_for(spec) -> _rl.CircuitBreaker:
+    """Получить (или создать) circuit breaker для источника."""
+    key = getattr(spec, "key", "unknown")
+    with _BREAKER_LOCK:
+        cb = _CIRCUIT_BREAKERS.get(key)
+        if cb is None:
+            fails = getattr(spec, "circuit_breaker_failures", 0) \
+                or DEFAULT_CIRCUIT_FAILURES
+            cool = getattr(spec, "circuit_breaker_cooldown_sec", 0) \
+                or DEFAULT_CIRCUIT_COOLDOWN
+            cb = _rl.CircuitBreaker(failures=fails, cooldown_sec=cool)
+            _CIRCUIT_BREAKERS[key] = cb
+        return cb
 
-    Принимает bytes — ElementTree сам прочитает кодировку из XML-декларации.
-    Если пришла строка — кодируем в UTF-8.
-    """
-    import xml.etree.ElementTree as ET
-    if isinstance(content, str):
-        content = content.encode("utf-8")
+
+def _rps_for(spec) -> float:
+    """Сколько запросов в секунду разрешено этому источнику. 0 = без лимита."""
+    rps = float(getattr(spec, "rate_limit_rps", 0.0) or 0.0)
+    if rps > 0:
+        return rps
+    return DEFAULT_RATE_RPS
+
+
+def circuit_breaker_snapshot() -> dict:
+    """Снимок состояния всех breaker'ов — для логов и отладки."""
+    with _BREAKER_LOCK:
+        return {k: cb.state() for k, cb in _CIRCUIT_BREAKERS.items()}
+
+
+# ──────────────────────────────────────────────────────────────
+#  РЕГИСТРАЦИЯ FETCH-СТРАТЕГИЙ
+# ──────────────────────────────────────────────────────────────
+# Фетчеры обёрнуты в защиту от бана:
+#   • CircuitBreaker — если источник подряд отдаёт ошибки, временно
+#     отключаем его (source пропускается, сбор помечается неполным);
+#   • TokenBucket — N запросов в секунду на хост (по умолчанию выключено,
+#     включается REDCAT_RATE_LIMIT_RPS в .env или rate_limit_rps в spec);
+#   • Retry-After — при HTTP 429 читаем заголовок и ждём указанное время.
+@src.register_fetcher("http")
+def _fetch_http_sync(url, spec, session=None, **kwargs):
+    if session is None:
+        raise ValueError(
+            "http-фетчеру нужна session=requests.Session(). "
+            "Передайте её через src.fetch_raw(..., session=session).")
+
+    # Circuit breaker
+    cb = _breaker_for(spec)
+    if cb.is_open():
+        state = cb.state()
+        return {"status": None, "body": None, "headers": {},
+                "error": (f"circuit breaker открыт ({state['last_reason']}); "
+                          f"ещё {state['open_remaining_sec']:.0f} сек до повтора"),
+                "error_kind": "circuit_open"}
+
+    # Rate limiter
+    rps = _rps_for(spec)
+    wait = _RATE_LIMITERS.try_consume(url, rps)
+    if wait > 0:
+        time.sleep(min(wait, 30.0))
+
     try:
-        root = ET.fromstring(content)
-    except ET.ParseError as e:
-        logging.error("[%s] XML не разобрался: %s", spec.key, e)
-        return {"items": [], "total": 0}
+        resp = session.get(url, timeout=kwargs.get("timeout", REQUEST_TIMEOUT))
+        headers = dict(resp.headers)
+        status = resp.status_code
 
-    tag = getattr(spec, "xml_record_tag", "offer")
-    items = [_xml_elem_to_dict(el) for el in root.iter()
-             if el.tag.split("}")[-1] == tag]
-    return {"items": items, "total": len(items)}
+        if status == 429:
+            ra = _rl.parse_retry_after(headers, default=3.0)
+            _RATE_LIMITERS.on_rate_limit(url, ra, rps)
+            cb.record_failure("HTTP 429")
+            # Небольшая пауза прямо в фетчере, чтобы вызывающий не сделал
+            # немедленный retry и не усугубил.
+            time.sleep(min(ra, 60.0))
+        elif 500 <= status < 600:
+            cb.record_failure(f"HTTP {status}")
+        elif 200 <= status < 400:
+            cb.record_success()
+        # 4xx кроме 429 — наша ошибка, breaker не трогаем.
+
+        return {"status": status, "body": resp.content,
+                "headers": headers, "error": None}
+    except requests.exceptions.RequestException as e:
+        cb.record_failure(type(e).__name__)
+        return {"status": None, "body": None, "headers": {},
+                "error": str(e), "error_kind": "network"}
+
+
+@src.register_async_fetcher("http")
+async def _fetch_http_async(url, spec, session=None, **kwargs):
+    if session is None:
+        raise ValueError(
+            "async http-фетчеру нужна session=aiohttp.ClientSession().")
+
+    cb = _breaker_for(spec)
+    if cb.is_open():
+        state = cb.state()
+        return {"status": None, "body": None, "headers": {},
+                "error": (f"circuit breaker открыт ({state['last_reason']}); "
+                          f"ещё {state['open_remaining_sec']:.0f} сек до повтора"),
+                "error_kind": "circuit_open"}
+
+    rps = _rps_for(spec)
+    wait = _RATE_LIMITERS.try_consume(url, rps)
+    if wait > 0:
+        await asyncio.sleep(min(wait, 30.0))
+
+    try:
+        async with session.get(url) as resp:
+            body = await resp.read()
+            headers = dict(resp.headers)
+            status = resp.status
+
+            if status == 429:
+                ra = _rl.parse_retry_after(headers, default=3.0)
+                _RATE_LIMITERS.on_rate_limit(url, ra, rps)
+                cb.record_failure("HTTP 429")
+                await asyncio.sleep(min(ra, 60.0))
+            elif 500 <= status < 600:
+                cb.record_failure(f"HTTP {status}")
+            elif 200 <= status < 400:
+                cb.record_success()
+
+            return {"status": status, "body": body,
+                    "headers": headers, "error": None}
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        cb.record_failure(type(e).__name__)
+        return {"status": None, "body": None, "headers": {},
+                "error": str(e), "error_kind": "network"}
 
 # ──────────────────────────────────────────────────────────────
 #  СБОР ДАННЫХ
@@ -259,34 +355,20 @@ def find_total(data, spec):
     return None
 
 
-def _set_query_param(url, name, value):
-    parts = urllib.parse.urlsplit(url)
-    pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
-    pairs = [(k, v) for k, v in pairs if k != name]
-    pairs.append((name, str(value)))
-    return urllib.parse.urlunsplit(
-        parts._replace(query=urllib.parse.urlencode(pairs)))
+# Реализация перенесена в sources.py — доступна как src.set_query_param.
+# Алиас сохранён, чтобы не трогать существующие вызовы по всему файлу.
+_set_query_param = src.set_query_param
 
 
 def _next_url(data, spec, current_url, page_number, got_rows, collected, total):
     """Определяет адрес следующей страницы.
 
-    next_link_path должен вести к строке-URL. Туда легко попадает bool
-    (hasNextPage) — тогда это не ссылка, и urljoin превратит True в /api/True.
-    Считаем, что ссылки нет, и идём по номеру страницы.
+    Делегирует в src.compute_next_url — там реестр стратегий пагинации
+    (auto / next_link / page_number / offset / cursor / stop). data — это
+    raw payload ответа (обычно то, что вернул парсер в поле "raw").
     """
-    nxt = src.dig(data, spec.next_link_path)
-    if nxt and isinstance(nxt, str):
-        absolute = urllib.parse.urljoin(current_url, nxt)
-        return _set_query_param(absolute, spec.page_size_param, spec.page_size)
-
-    if got_rows < spec.page_size:
-        return None
-    if total is not None and collected >= total:
-        return None
-    return _set_query_param(
-        _set_query_param(current_url, spec.page_size_param, spec.page_size),
-        spec.page_number_param, page_number + 1)
+    return src.compute_next_url(data, spec, current_url, page_number,
+                                got_rows, collected, total)
 
 
 def _window_limit_hint(body) -> bool:
@@ -328,55 +410,69 @@ def fetch_pages(base_url, session, spec, label="", max_pages=100000,
 
         data = None
         for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                resp = session.get(url, timeout=REQUEST_TIMEOUT)
-                if resp.status_code >= 400:
-                    body = resp.text[:800]
-                    if _window_limit_hint(body):
-                        print(f"\n  ⛔ [{label}] API упёрся в лимит окна пагинации "
-                              f"на странице {page} (собрано {len(all_data)}).")
-                        logging.error("[%s] лимит окна пагинации: %s", label, body)
-                        incomplete = True
-                        data = None
-                        break
-
-                    print(f"\n  ❌ [{label}] стр.{page}: HTTP {resp.status_code}")
-                    print(f"     Тело ответа API: {body[:400] or '(пусто)'}")
-                    logging.error("[%s] стр.%d: HTTP %d — %s",
-                                 label, page, resp.status_code, body)
-
-                    if _looks_deterministic(body):
-                        print(f"  ⛔ Похоже на поломку самого запроса.")
-                        incomplete = True
-                        data = None
-                        break
-
-                    if attempt < MAX_RETRIES:
-                        print(f"     Повтор {attempt}/{MAX_RETRIES}...")
-                        time.sleep(RETRY_DELAY_SEC * attempt)
-                        continue
+            raw = src.fetch_raw(url, spec, session=session)
+            if raw.get("error"):
+                if raw.get("error_kind") == "circuit_open":
+                    print(f"\n  ⛔ [{label}] {raw['error']}. "
+                          f"Источник пропускается, повторите запуск позже.")
                     incomplete = True
                     data = None
                     break
-                if getattr(spec, "format", "json") == "xml":
-                    data = _parse_xml_response(resp.content, spec)
-                else:
-                    data = resp.json()
-                break
-            except requests.exceptions.RequestException as e:
                 logging.warning("[%s] стр.%d попытка %d/%d: %s",
-                                label, page, attempt, MAX_RETRIES, e)
+                                label, page, attempt, MAX_RETRIES, raw["error"])
                 if attempt < MAX_RETRIES:
                     time.sleep(RETRY_DELAY_SEC * attempt)
                 else:
                     incomplete = True
+                continue
+
+            status = raw.get("status")
+            if status is not None and status >= 400:
+                body = (raw.get("body") or b"").decode("utf-8", errors="replace")[:800]
+                if _window_limit_hint(body):
+                    print(f"\n  ⛔ [{label}] API упёрся в лимит окна пагинации "
+                          f"на странице {page} (собрано {len(all_data)}).")
+                    logging.error("[%s] лимит окна пагинации: %s", label, body)
+                    incomplete = True
+                    data = None
+                    break
+
+                print(f"\n  ❌ [{label}] стр.{page}: HTTP {status}")
+                print(f"     Тело ответа API: {body[:400] or '(пусто)'}")
+                logging.error("[%s] стр.%d: HTTP %d — %s",
+                             label, page, status, body)
+
+                if _looks_deterministic(body):
+                    print(f"  ⛔ Похоже на поломку самого запроса.")
+                    incomplete = True
+                    data = None
+                    break
+
+                if attempt < MAX_RETRIES:
+                    print(f"     Повтор {attempt}/{MAX_RETRIES}...")
+                    time.sleep(RETRY_DELAY_SEC * attempt)
+                    continue
+                incomplete = True
+                data = None
+                break
+
+            try:
+                data = src.parse_payload(raw.get("body"), spec)
+            except ValueError as e:
+                logging.error("[%s] стр.%d: не удалось разобрать ответ: %s",
+                              label, page, e)
+                print(f"\n  ❌ [{label}] стр.{page}: ответ не разобран: {e}")
+                incomplete = True
+                data = None
+                break
+            break
         if data is None:
             break
 
-        items = src.dig(data, spec.data_path)
+        items = data.get("items") if isinstance(data, dict) else None
         if not isinstance(items, list):
-            logging.warning("[%s] стр.%d: по пути %s нет списка записей.",
-                            label, page, spec.data_path)
+            logging.warning("[%s] стр.%d: в ответе нет списка записей.",
+                            label, page)
             break
 
         page_ids = {str(it.get(spec.id_field)) for it in items
@@ -394,18 +490,25 @@ def fetch_pages(base_url, session, spec, label="", max_pages=100000,
             print(f"[{page}:{len(all_data)}]", end=" ", flush=True)
 
         if reported_total is None:
-            reported_total = find_total(data, spec)
+            reported_total = data.get("total") if isinstance(data, dict) else None
+        if reported_total is None:
+            reported_total = find_total(data.get("raw") if isinstance(data, dict) else data,
+                                        spec)
 
         if spec.max_records and len(all_data) >= spec.max_records:
             del all_data[spec.max_records:]
             capped = True
             break
 
-        url = _next_url(data, spec, url, page, len(items),
+        url = _next_url(data.get("raw") if isinstance(data, dict) else data,
+                        spec, url, page, len(items),
                         len(all_data), reported_total)
         if url:
             page += 1
-            time.sleep(0.15)
+            # Если rate limiter активен — он сам рулит паузами.
+            # Иначе оставляем старый предохранитель от долбёжки.
+            if _rps_for(spec) <= 0:
+                time.sleep(0.15)
 
     if capped:
         note = f" из {reported_total} по данным API" if reported_total else ""
@@ -482,28 +585,47 @@ async def _fetch_json(url, session, label, page, max_attempts=None, spec=None):
     status, body_snippet = None, None
     attempts = max_attempts or MAX_RETRIES
     for attempt in range(1, attempts + 1):
-        try:
-            async with session.get(url) as resp:
-                status = resp.status
-                if resp.status >= 400:
-                    body_snippet = (await resp.text())[:500]
-                    logging.warning("[%s] стр.%d попытка %d/%d: HTTP %d — %s",
-                                    label, page, attempt, attempts, status, body_snippet)
-                    if status in (401, 403) or _looks_deterministic(body_snippet):
-                        return None, status, body_snippet
-                    if attempt < attempts:
-                        backoff = RETRY_DELAY_SEC * attempt * (3 if status == 429 else 1)
-                        await asyncio.sleep(backoff)
-                    continue
-                if spec is not None and getattr(spec, "format", "json") == "xml":
-                    body = await resp.read()
-                    return _parse_xml_response(body, spec), status, None
-                return await resp.json(), status, None
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        raw = await src.async_fetch_raw(url, spec, session=session)
+        if raw.get("error"):
+            if raw.get("error_kind") == "circuit_open":
+                logging.warning("[%s] стр.%d: %s",
+                                label, page, raw["error"])
+                return None, None, "circuit_open"
             logging.warning("[%s] стр.%d попытка %d/%d: %s",
-                            label, page, attempt, attempts, e)
+                            label, page, attempt, attempts, raw["error"])
             if attempt < attempts:
                 await asyncio.sleep(RETRY_DELAY_SEC * attempt)
+                continue
+            return None, status, body_snippet
+
+        status = raw.get("status")
+        if status is not None and status >= 400:
+            body_snippet = (raw.get("body") or b"").decode(
+                "utf-8", errors="replace")[:500]
+            logging.warning("[%s] стр.%d попытка %d/%d: HTTP %d — %s",
+                            label, page, attempt, attempts, status, body_snippet)
+            if status in (401, 403) or _looks_deterministic(body_snippet):
+                return None, status, body_snippet
+            if attempt < attempts:
+                backoff = RETRY_DELAY_SEC * attempt * (3 if status == 429 else 1)
+                await asyncio.sleep(backoff)
+            continue
+
+        if spec is None:
+            # Резервный путь без стратегии парсинга (совместимость с preflight)
+            import json as _json
+            try:
+                return _json.loads((raw.get("body") or b"").decode(
+                    "utf-8", errors="replace")), status, None
+            except ValueError as e:
+                return None, status, str(e)
+
+        try:
+            return src.parse_payload(raw.get("body"), spec), status, None
+        except ValueError as e:
+            logging.warning("[%s] стр.%d: не удалось разобрать ответ: %s",
+                            label, page, e)
+            return None, status, str(e)
     return None, status, body_snippet
 
 
@@ -612,20 +734,23 @@ async def _fetch_one_split(value, session, semaphore, spec, base_url):
                 break
 
             if spec.preprocess and spec.preprocess in src.PREPROCESSORS:
-                items = src.PREPROCESSORS[spec.preprocess](data, value)
+                items = src.PREPROCESSORS[spec.preprocess](data.get("raw"), value)
             else:
-                items = src.dig(data, spec.data_path)
+                items = data.get("items") or []
             if not isinstance(items, list):
-                logging.warning("[%s] стр.%d: по пути %s нет списка записей.",
-                                label, page, spec.data_path)
+                logging.warning("[%s] стр.%d: в ответе нет списка записей.",
+                                label, page)
                 break
             rows.extend(items)
             if total is None:
-                total = find_total(data, spec)
+                total = data.get("total")
+            if total is None:
+                total = find_total(data.get("raw"), spec)
             if len(rows) >= ES_WINDOW and total is not None and total > len(rows):
                 url = None
             else:
-                url = _next_url(data, spec, url, page, len(items), len(rows), total)
+                url = _next_url(data.get("raw"), spec, url, page,
+                                len(items), len(rows), total)
             if url:
                 page += 1
                 await asyncio.sleep(0.05)
@@ -703,12 +828,15 @@ def probe_live_values(url, session, spec, parent=None, limit=3):
         return []
     sep = "&" if "?" in url else "?"
     try:
-        resp = session.get(f"{url}{sep}{spec.page_size_param}={spec.page_size}"
-                           f"&{spec.page_number_param}=1", timeout=REQUEST_TIMEOUT)
-        if resp.status_code >= 400:
+        raw = src.fetch_raw(
+            f"{url}{sep}{spec.page_size_param}={spec.page_size}"
+            f"&{spec.page_number_param}=1",
+            spec, session=session)
+        if raw.get("error") or (raw.get("status") or 0) >= 400:
             return []
-        rows = src.dig(resp.json(), spec.data_path)
-    except (requests.exceptions.RequestException, ValueError):
+        parsed = src.parse_payload(raw.get("body"), spec)
+        rows = parsed.get("items") or []
+    except ValueError:
         return []
     live = []
     for r in rows if isinstance(rows, list) else []:
@@ -728,27 +856,28 @@ def probe_live_values(url, session, spec, parent=None, limit=3):
 def probe_total(url, session, spec):
     sep = "&" if "?" in url else "?"
     probe_url = f"{url}{sep}{spec.page_size_param}=1&{spec.page_number_param}=1"
-    try:
-        resp = session.get(probe_url, timeout=REQUEST_TIMEOUT)
-    except requests.exceptions.RequestException as e:
-        logging.warning("[%s] не удалось получить total: %s", spec.key, e)
-        print(f"  ⚠️ [{spec.key}] не удалось получить общий total ({e}) — "
-              f"сверка полноты сбора будет недоступна.")
+    raw = src.fetch_raw(probe_url, spec, session=session)
+    if raw.get("error"):
+        logging.warning("[%s] не удалось получить total: %s",
+                        spec.key, raw["error"])
+        print(f"  ⚠️ [{spec.key}] не удалось получить общий total "
+              f"({raw['error']}) — сверка полноты сбора будет недоступна.")
         return None
 
-    if resp.status_code >= 400:
-        body = resp.text[:800]
-        print(f"  ❌ [{spec.key}] пробный запрос вернул HTTP {resp.status_code}")
+    status = raw.get("status")
+    if status is not None and status >= 400:
+        body = (raw.get("body") or b"").decode("utf-8", errors="replace")[:800]
+        print(f"  ❌ [{spec.key}] пробный запрос вернул HTTP {status}")
         print(f"     Тело ответа API: {body[:400] or '(пусто)'}")
         logging.error("[%s] пробный запрос: HTTP %d — %s",
-                      spec.key, resp.status_code, body)
+                      spec.key, status, body)
         return None
 
     try:
-        payload = (_parse_xml_response(resp.content, spec)
-                   if getattr(spec, "format", "json") == "xml"
-                   else resp.json())
-        total = find_total(payload, spec)
+        parsed = src.parse_payload(raw.get("body"), spec)
+        total = parsed.get("total")
+        if total is None:
+            total = find_total(parsed.get("raw"), spec)
     except ValueError as e:
         logging.warning("[%s] ответ не распарсился: %s", spec.key, e)
         return None
@@ -996,6 +1125,8 @@ def collect_source(spec, session, token, params, collected):
       • иначе — обычный HTTP GET с пагинацией.
     """
     if getattr(spec, "fetch_mode", "http") == "browser":
+        if getattr(spec, "fetch_strategy", "") == "browser_xhr":
+            return _collect_source_browser_xhr(spec, params)
         return collect_source_browser(spec, session, token, params, collected)
 
     url = spec.resolved_url(params)
@@ -1088,6 +1219,50 @@ def collect_source(spec, session, token, params, collected):
     # Обычный HTTP GET с пагинацией.
     return fetch_pages(url, session, spec, spec.key)
 
+
+
+def _collect_source_browser_xhr(spec, params):
+    """Сбор источника через перехват XHR.
+
+    Открывает страницу, слушает XHR/fetch, берёт первый JSON-ответ,
+    подходящий под spec.browser_xhr_pattern, парсит его стратегией
+    spec.parse_strategy и возвращает записи. Постраничный обход тут
+    не делается: если источник пагинируется, обычно все данные приходят
+    одним XHR-ответом (или несколькими — тогда нужна отдельная стратегия
+    обхода, которая добавится позже).
+    """
+    try:
+        base_url = spec.resolved_url(params)
+    except ValueError as e:
+        print(f"  ❌ [{spec.key}] {e}")
+        return [], True, None
+
+    if browser_fetch is None:
+        print(f"  ❌ [{spec.key}] fetch_mode=browser, но browser_fetch.py "
+              f"не найден или Playwright не установлен.")
+        return [], True, None
+
+    mode = "видимое окно" if not spec.browser_headless else "headless"
+    print(f"  🌐 [{spec.key}] browser_xhr ({mode}); "
+          f"паттерн: {spec.browser_xhr_pattern or '(любой JSON)'}")
+
+    raw = src.fetch_raw(base_url, spec)   # fetcher открывается/закрывается сам
+    if raw.get("error"):
+        print(f"  ❌ [{spec.key}] XHR: {raw['error']}")
+        return [], True, None
+
+    try:
+        parsed = src.parse_payload(raw.get("body"), spec)
+    except ValueError as e:
+        print(f"  ❌ [{spec.key}] ответ XHR не разобран: {e}")
+        return [], True, None
+
+    items = parsed.get("items") or []
+    total = parsed.get("total")
+    print(f"  ✅ [{spec.key}] XHR: записей {len(items)}"
+          + (f" из {total}" if total else ""))
+    incomplete = bool(total and len(items) < total)
+    return items, incomplete, total
 
 
 def collect_source_browser(spec, session, token, params, collected):

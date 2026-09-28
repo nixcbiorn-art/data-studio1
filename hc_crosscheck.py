@@ -89,6 +89,19 @@ def _txt(v):
     return " ".join(str(v).split()).casefold() if v is not None else ""
 
 
+try:
+    from name_normalizer import normalize as _hc_norm
+except ImportError:                      # модуль лежит не рядом — работаем как раньше
+    _hc_norm = None
+
+
+def _nm(v):
+    """Название ЖК: «ЖК Скай» и «Скай» — одно и то же. Для застройщика не годится."""
+    if _hc_norm is None:
+        return _txt(v)
+    return _hc_norm(v) or _txt(v)
+
+
 def _date(v):
     """31.12.2028 и 2028-12-31 → date(2028, 12, 31); всё остальное → None."""
     if v is None:
@@ -159,7 +172,7 @@ def reconcile(apartments, directory, *, slice_mode=False, min_price_complete=Fal
             if nid != i:
                 id_mismatch += 1
         nn, an = a.get(f["nested_name"]), a.get(f["apt_name"])
-        if nn not in (None, "") and an not in (None, "") and _txt(nn) != _txt(an):
+        if nn not in (None, "") and an not in (None, "") and _nm(nn) != _nm(an):
             name_nested_bad += 1
 
     n_apts = sum(len(v) for v in groups.values())
@@ -221,7 +234,7 @@ def reconcile(apartments, directory, *, slice_mode=False, min_price_complete=Fal
         min_apt = min(prices) if prices else None
         flags = []
 
-        if len({_txt(a.get(f["apt_name"])) for a in lots if a.get(f["apt_name"]) not in (None, "")}) > 1:
+        if len({_nm(a.get(f["apt_name"])) for a in lots if a.get(f["apt_name"]) not in (None, "")}) > 1:
             flags.append("у лотов разные названия ЖК")
             bad["multi"].append(i)
 
@@ -231,7 +244,7 @@ def reconcile(apartments, directory, *, slice_mode=False, min_price_complete=Fal
         else:
             name_dir, dev_dir = d.get(f["dir_name"]), d.get(f["dir_dev"])
             dl_dir, min_dir = d.get(f["dir_deadline"]), _num(d.get(f["dir_min"]))
-            if name_apt and name_dir and _txt(name_apt) != _txt(name_dir):
+            if name_apt and name_dir and _nm(name_apt) != _nm(name_dir):
                 flags.append("название"); bad["name"].append(f"{i} («{name_dir}» ≠ «{name_apt}»)")
             if dev_apt and dev_dir and _txt(dev_apt) != _txt(dev_dir):
                 flags.append("застройщик"); bad["dev"].append(f"{i} («{dev_dir}» ≠ «{dev_apt}»)")

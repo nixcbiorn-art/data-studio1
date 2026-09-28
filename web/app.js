@@ -1731,10 +1731,11 @@ const App = {
         return;
       }
       const suggestion = JSON.stringify(r.suggestion, null, 2);
-      box.replaceChildren(el('div', { style: 'margin-top:11px' },
+      const children = [
         el('div', { class: 'row tight' },
           el('span', { class: 'pill ' + (r.ok ? 'ok' : 'warn') }, `HTTP ${r.status ?? '—'}`),
           el('span', { class: 'muted tiny' }, `${r.ms} мс`)),
+        App._renderValidation(r.validation),
         el('h3', { style: 'margin-top:11px' }, 'Предлагаемое описание источника'),
         el('textarea', { rows: 12, id: 'probeSpec' }, suggestion),
         el('div', { class: 'row', style: 'margin-top:8px' },
@@ -1750,10 +1751,57 @@ const App = {
                 App.loadSources(); App.loadMeta();
               } catch (e) { toast(e.message, true); }
             },
-          }, 'Сохранить как источник')),
+          }, 'Сохранить как источник'),
+          el('button', {
+            onclick: async () => {
+              try {
+                const spec = JSON.parse($('probeSpec').value);
+                const v = await api.post('probe_spec', { spec, url: spec.url });
+                box.appendChild(App._renderValidation(v.validation));
+              } catch (e) { toast(e.message, true); }
+            },
+          }, 'Проверить spec заново')),
         el('h3', { style: 'margin-top:13px' }, 'Ответ (фрагмент)'),
-        el('pre', { class: 'log' }, r.preview)));
+        el('pre', { class: 'log' }, r.preview),
+      ];
+      box.replaceChildren(el('div', { style: 'margin-top:11px' }, ...children));
     } catch (e) { box.replaceChildren(el('div', { class: 'card' }, e.message)); }
+  },
+
+  _renderValidation(v) {
+    if (!v) return el('div');
+    const rows = [];
+    if (v.warnings && v.warnings.length) {
+      for (const w of v.warnings) {
+        const cls = w.level === 'critical' ? 'crit' : 'warn';
+        rows.push(el('div', { style: 'padding:6px 0;border-bottom:1px solid var(--line)' },
+          el('div', { class: 'row tight' },
+            el('span', { class: 'pill ' + cls },
+              w.level === 'critical' ? 'критично' : 'внимание'),
+            el('span', { class: 'mono tiny muted' }, w.field || '')),
+          el('div', {}, w.message || ''),
+          w.advice ? el('div', { class: 'tiny', style: 'color:#9dc0ff;margin-top:3px' },
+            '→ ' + w.advice) : null));
+      }
+    }
+    if (v.checks && v.checks.length) {
+      for (const c of v.checks) {
+        rows.push(el('div', { style: 'padding:3px 0;font-size:11.5px;color:var(--muted)' },
+          el('span', { class: 'pill ok' }, '✓'), ' ',
+          el('span', { class: 'mono' }, c.field || ''), ' — ', c.message || ''));
+      }
+    }
+    const head = el('div', { class: 'row tight', style: 'margin-bottom:8px;flex-wrap:wrap' },
+      el('span', { class: 'pill ' + (v.parse_ok ? 'ok' : 'crit') },
+        v.parse_ok ? 'парсер отработал' : 'парсер не отработал'),
+      v.items_count ? el('span', { class: 'pill info' }, `записей: ${v.items_count}`) : null,
+      v.total_reported ? el('span', { class: 'pill info' }, `total: ${v.total_reported}`) : null,
+      (v.warnings && v.warnings.length)
+        ? el('span', { class: 'pill crit' }, `замечаний: ${v.warnings.length}`) : null);
+    const body = rows.length
+      ? el('div', {}, ...rows)
+      : el('div', { class: 'muted tiny' }, 'Замечаний нет.');
+    return el('div', { class: 'card', style: 'margin-top:11px' }, head, body);
   },
 
   async loadExternalList() {

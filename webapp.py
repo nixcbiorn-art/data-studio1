@@ -60,7 +60,9 @@ import dataops
 import completeness
 import field_labels
 import hc_aliases
+import name_normalizer
 import sources as src
+import spec_validator
 import studio_store as store
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -433,37 +435,9 @@ def _aggregate(values, agg: str):
     return round(statistics.median(nums), 2), len(nums)
 
 
-_CORPUS_RE = re.compile(
-    r"\b(корпус|корп\.?|к\.?|строение|стр\.?|литер[аы]?|секц(ия|\.)?)\s*\d+\b",
-    re.IGNORECASE)
-
-
 def _normalize_key(raw, aliases: dict | None = None) -> str | None:
-    """Приводит название ЖК к сравнимому виду.
-
-    Что делает:
-      • убирает ведущее «ЖК», «ЖК.», «ЖК:»
-      • приводит к нижнему регистру
-      • ё → е
-      • удаляет «корпус 3», «строение 1» — это один и тот же ЖК
-      • схлопывает пробелы, убирает дефисы и точки
-
-    aliases — словарь {нормализованное_имя: канон}. Применяется в самом
-    конце, чтобы свести разные написания к одному ключу.
-    """
-    if raw is None:
-        return None
-    t = str(raw).lower().strip()
-    for prefix in ("жк ", "жк. ", "жк: ", "жк-", "мкр "):
-        if t.startswith(prefix):
-            t = t[len(prefix):]
-    t = t.replace("ё", "е")
-    t = _CORPUS_RE.sub(" ", t)
-    t = t.replace("-", " ").replace("_", " ").replace(".", " ").replace(",", " ")
-    t = re.sub(r"\s+", " ", t).strip()
-    if aliases:
-        t = aliases.get(t, t)
-    return t or None
+    """Нормализует имя ЖК (name_normalizer) и применяет словарь синонимов."""
+    return name_normalizer.canon(raw, aliases)
 
 
 _CSV_UPLOAD_STATE: dict = {}
@@ -564,7 +538,7 @@ def _cross_check_report(source_key: str) -> dict:
     agg = (cc.get("agg") or "median").lower()
     filter_right = cc.get("filter_right") or None
     filter_left = cc.get("filter_left") or None
-    normalize_key = bool(cc.get("normalize_key", False))
+    normalize_key = bool(cc.get("normalize_key", True))   # по умолчанию ВКЛ
     min_group_size = int(cc.get("min_group_size", 10))
     thresholds = cc.get("thresholds") or {}
     t_ok = float(thresholds.get("ok", 10))
@@ -657,6 +631,23 @@ def _cross_check_report(source_key: str) -> dict:
             continue
         right_groups.setdefault(k, []).append(r)
         right_display.setdefault(k, str(r.get(on_right) or k))
+
+    # ---- автосинонимы: Скай Гарден ↔ Sky Garden, Эко Бунино ↔ ЭкоБунино ----
+    # Только однозначные пары. Ручные aliases (spec + hc_aliases.json) главнее.
+    auto_added = 0
+    if normalize_key:
+        only_l = [k for k in left_groups if k not in right_groups]
+        only_r = [k for k in right_groups if k not in left_groups]
+        if only_l and only_r:
+            found = name_normalizer.auto_aliases(
+                only_l, only_r, existing=aliases,
+                left_counts={k: len(left_groups[k]) for k in only_l},
+                right_counts={k: len(right_groups[k]) for k in only_r})["aliases"]
+            for lk, rk in found.items():
+                if rk in right_groups and lk in left_groups:
+                    left_groups.setdefault(rk, []).extend(left_groups.pop(lk))
+                    left_display.setdefault(rk, left_display.pop(lk, lk))
+                    auto_added += 1
 
     all_keys = sorted(set(left_groups) | set(right_groups))
 
@@ -756,6 +747,7 @@ def _cross_check_report(source_key: str) -> dict:
         "right_external": bool(specs.get(with_table).external)
                           if specs.get(with_table) else False,
         "aliases_total": len(aliases),
+        "auto_aliases": auto_added,
         "summary": summary,
         "items_by_class": {k: v[:500] for k, v in items_by_class.items()},
     }
@@ -1200,6 +1192,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == "probe":
             return self._send(self._probe(b))
 
+        if route == "probe_spec":
+            return self._send(self._probe_spec(b))
+
         if route == "run_start":
             args = []
             if b.get("only"):
@@ -1507,8 +1502,12 @@ class Handler(BaseHTTPRequestHandler):
                 suggestion["browser_wait_for"] = b["browser_wait_for"]
             if b.get("browser_wait_ms"):
                 suggestion["browser_wait_ms"] = int(b["browser_wait_ms"])
+            validation = spec_validator.validate_on_sample(
+                suggestion,
+                html.encode("utf-8") if isinstance(html, str) else html)
             return {"ok": True, "status": 200, "ms": ms,
-                    "preview": preview, "suggestion": suggestion}
+                    "preview": preview, "suggestion": suggestion,
+                    "validation": validation}
 
         headers = {"Accept": "application/json"}
         if token:
@@ -1527,9 +1526,81 @@ class Handler(BaseHTTPRequestHandler):
         suggestion = src.suggest_spec(
             b.get("url", url), payload, b.get("key", ""), b.get("title", ""),
             b.get("pagination_style", "jsonapi"))
+        validation = spec_validator.validate_on_sample(suggestion, resp.content)
         return {"ok": resp.ok, "status": resp.status_code, "ms": ms,
                 "preview": json.dumps(payload, ensure_ascii=False)[:4000],
-                "suggestion": suggestion}
+                "suggestion": suggestion,
+                "validation": validation}
+
+    def _probe_spec(self, b):
+        """Прогоняет готовый spec на одном ответе и возвращает отчёт.
+
+        Полезно, когда черновик уже поправлен руками: пользователь нажимает
+        «Проверить spec» и сразу видит, сколько записей извлёк парсер, какие
+        поля не сошлись и какие стратегии не зарегистрированы.
+
+        Ничего не сохраняет. Регистрация источника — отдельный маршрут
+        source_save / source_save_raw.
+        """
+        spec_dict = b.get("spec") or {}
+        url = (b.get("url") or spec_dict.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            raise dataops.DataError("Укажите URL для проверки.")
+
+        params = src.env_params()
+        for key, value in params.items():
+            url = url.replace("{" + key + "}", str(value))
+        token = (b.get("token") or read_env_token()).strip()
+        fetch_mode = spec_dict.get("fetch_mode") or "http"
+
+        if fetch_mode == "browser":
+            try:
+                import browser_fetch
+            except ImportError:
+                return {"ok": False,
+                        "error": "browser_fetch.py не найден рядом с webapp.py."}
+            spec_obj, _ = spec_validator.to_spec(spec_dict)
+            strategy = (spec_obj.fetch_strategy if spec_obj else "") or "browser"
+            try:
+                with browser_fetch.BrowserFetcher("probe_spec") as fetcher:
+                    if strategy == "browser_xhr":
+                        captured = fetcher.capture_json_responses(
+                            url,
+                            (spec_obj.browser_xhr_pattern if spec_obj else "") or "",
+                            wait_for=(spec_obj.browser_wait_for if spec_obj else "") or "",
+                            wait_ms=int((spec_obj.browser_wait_ms if spec_obj else 0) or 0),
+                        )
+                        if not captured:
+                            return {"ok": False,
+                                    "error": "ни одного JSON-XHR не поймано"}
+                        raw = json.dumps(captured[0], ensure_ascii=False).encode("utf-8")
+                    else:
+                        html = fetcher.fetch(
+                            url,
+                            wait_for=(spec_obj.browser_wait_for if spec_obj else "") or "",
+                            wait_ms=int((spec_obj.browser_wait_ms if spec_obj else 0) or 0),
+                        )
+                        raw = (html.encode("utf-8")
+                               if isinstance(html, str) else html)
+            except Exception as e:  # noqa: BLE001
+                return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        else:
+            import requests
+            headers = {"Accept": "application/json"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            try:
+                resp = requests.get(url, headers=headers, timeout=25)
+            except Exception as e:  # noqa: BLE001
+                return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            if resp.status_code >= 400:
+                return {"ok": False, "status": resp.status_code,
+                        "error": resp.text[:400]}
+            raw = resp.content
+
+        validation = spec_validator.validate_on_sample(spec_dict, raw)
+        return {"ok": bool(validation.get("parse_ok")),
+                "validation": validation}
 
     def _related(self, table, record_id):
         import crosschecks

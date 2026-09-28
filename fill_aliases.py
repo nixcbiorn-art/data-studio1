@@ -21,22 +21,17 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE))
+
+import name_normalizer
 EXT_DB = BASE / "reports" / "external_data.db"
 RED_DB = BASE / "reports" / "redcat_data.db"
 OUT = BASE / "hc_aliases.json"
 
 
 def norm(s):
-    if not s:
-        return ""
-    t = str(s).lower().strip()
-    for p in ("жк ", "жк. ", "жк: ", "жк-", "мкр "):
-        if t.startswith(p):
-            t = t[len(p):]
-    t = t.replace("ё", "е")
-    t = re.sub(r"\b(корпус|корп|стр|секц|литер)\s*\d+\b", " ", t)
-    t = re.sub(r"[^a-zа-я0-9]+", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
+    """Единая нормализация — та же, что использует webapp (name_normalizer)."""
+    return name_normalizer.normalize(s) or ""
 
 
 # Простая транслитерация — чтобы «амбер сити» нашло «amber city»
@@ -56,7 +51,7 @@ def translit(s):
 def sim(a, b):
     if not a or not b:
         return 0.0
-    return SequenceMatcher(None, a, b).ratio()
+    return name_normalizer.similarity(a, b)[0]
 
 
 def names(db, table, col, where=""):
@@ -82,16 +77,16 @@ def best_match(left, right_names):
         if norm(r) == ln:
             return r, 1.0, "norm"
 
-    # транслит
-    lt = translit(ln)
+    # фонетика (кириллица ↔ латиница)
+    lp = name_normalizer.phon_key(ln)
     for r in right_names:
-        if translit(norm(r)) == lt:
-            return r, 0.99, "trans"
+        if name_normalizer.phon_key(r) == lp:
+            return r, 0.97, "phon"
 
     # fuzzy
     best, score = None, 0.0
     for r in right_names:
-        s = max(sim(ln, norm(r)), sim(lt, translit(norm(r))))
+        s = sim(ln, norm(r))
         if s > score:
             best, score = r, s
     return best, score, "fuzzy"
