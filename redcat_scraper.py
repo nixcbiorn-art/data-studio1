@@ -180,6 +180,54 @@ MAX_RETRIES = int(os.environ.get("REDCAT_MAX_RETRIES", "3"))
 RETRY_DELAY_SEC = 2
 KEEP_RECORD_HISTORY_RUNS = int(os.environ.get("REDCAT_KEEP_HISTORY_RUNS", "30"))
 
+def _xml_elem_to_dict(elem):
+    """XML-элемент → dict.
+
+    Атрибуты (internal-id и т.п.) и текст кладутся на верхний уровень.
+    Повторяющиеся дочерние теги собираются в список. Namespace срезается.
+    """
+    result = dict(elem.attrib)
+    children = list(elem)
+    if not children:
+        text = (elem.text or "").strip()
+        if result:
+            if text:
+                result["#text"] = text
+            return result
+        return text or None
+    grouped = {}
+    for child in children:
+        tag = child.tag.split("}")[-1]
+        val = _xml_elem_to_dict(child)
+        if tag in grouped:
+            if not isinstance(grouped[tag], list):
+                grouped[tag] = [grouped[tag]]
+            grouped[tag].append(val)
+        else:
+            grouped[tag] = val
+    result.update(grouped)
+    return result
+
+
+def _parse_xml_response(content, spec):
+    """Парсит XML-фид (YRL, RSS и т.п.), возвращает {'items': [...], 'total': N}.
+
+    Принимает bytes — ElementTree сам прочитает кодировку из XML-декларации.
+    Если пришла строка — кодируем в UTF-8.
+    """
+    import xml.etree.ElementTree as ET
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as e:
+        logging.error("[%s] XML не разобрался: %s", spec.key, e)
+        return {"items": [], "total": 0}
+
+    tag = getattr(spec, "xml_record_tag", "offer")
+    items = [_xml_elem_to_dict(el) for el in root.iter()
+             if el.tag.split("}")[-1] == tag]
+    return {"items": items, "total": len(items)}
 
 # ──────────────────────────────────────────────────────────────
 #  СБОР ДАННЫХ
@@ -310,7 +358,10 @@ def fetch_pages(base_url, session, spec, label="", max_pages=100000,
                     incomplete = True
                     data = None
                     break
-                data = resp.json()
+                if getattr(spec, "format", "json") == "xml":
+                    data = _parse_xml_response(resp.content, spec)
+                else:
+                    data = resp.json()
                 break
             except requests.exceptions.RequestException as e:
                 logging.warning("[%s] стр.%d попытка %d/%d: %s",
@@ -427,7 +478,7 @@ def fetch_pages(base_url, session, spec, label="", max_pages=100000,
     return all_data, incomplete, reported_total
 
 
-async def _fetch_json(url, session, label, page, max_attempts=None):
+async def _fetch_json(url, session, label, page, max_attempts=None, spec=None):
     status, body_snippet = None, None
     attempts = max_attempts or MAX_RETRIES
     for attempt in range(1, attempts + 1):
@@ -444,6 +495,9 @@ async def _fetch_json(url, session, label, page, max_attempts=None):
                         backoff = RETRY_DELAY_SEC * attempt * (3 if status == 429 else 1)
                         await asyncio.sleep(backoff)
                     continue
+                if spec is not None and getattr(spec, "format", "json") == "xml":
+                    body = await resp.read()
+                    return _parse_xml_response(body, spec), status, None
                 return await resp.json(), status, None
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logging.warning("[%s] стр.%d попытка %d/%d: %s",
@@ -478,18 +532,21 @@ async def preflight_check_split(base_url, sample_values, token, spec):
         unfiltered_url = (f"{base_url}{sep}{spec.page_size_param}=1"
                           f"&{spec.page_number_param}=1")
         base_data, _, _ = await _fetch_json(
-            unfiltered_url, session, f"preflight:{spec.key}", 0)
+            unfiltered_url, session, f"preflight:{spec.key}", 0, spec=spec)
         unfiltered_total = find_total(base_data, spec) if base_data else None
 
         failed_in_row = 0
         for value in sample_values:
             url = (f"{base_url}{sep}{spec.split_param}={value}"
-                   f"&{spec.page_size_param}={spec.page_size}&{spec.page_number_param}=1")
+                   f"&{spec.page_size_param}={spec.page_size}"
+                   f"&{spec.page_number_param}=1")
             data, status, body = await _fetch_json(
-                url, session, f"preflight:{spec.key}", 1, max_attempts=1)
+                url, session, f"preflight:{spec.key}", 1,
+                max_attempts=1, spec=spec)
             rows = src.dig(data, spec.data_path) if data else None
             results.append({
-                "value": value, "ok": data is not None, "status": status, "body": body,
+                "value": value, "ok": data is not None, "status": status,
+                "body": body,
                 "rows": len(rows) if isinstance(rows, list) else None,
                 "total": find_total(data, spec) if data else None,
             })
@@ -517,12 +574,12 @@ async def preflight_check_split(base_url, sample_values, token, spec):
     empty = [r for r in responded if not r["rows"]]
     if len(empty) == len(responded):
         return False, (
-            f"Все {len(responded)} проверенных значений вернули 0 записей без ошибок.")
+            f"Все {len(responded)} проверенных значений вернули 0 записей "
+            f"без ошибок.")
 
     with_data = len(responded) - len(empty)
     return True, (f"фильтр работает: из {len(responded)} проб с данными {with_data}"
                   + (f", всего по региону {unfiltered_total}" if unfiltered_total else ""))
-
 
 async def _fetch_one_split(value, session, semaphore, spec, base_url):
     label = f"{spec.key}:{value}"
@@ -542,7 +599,8 @@ async def _fetch_one_split(value, session, semaphore, spec, base_url):
     async with semaphore:
         while url:
             data, status, _body = await _fetch_json(
-                url, session, label, page, max_attempts=2 if page == 1 else None)
+                url, session, label, page,
+                max_attempts=2 if page == 1 else None, spec=spec)
             if status is not None:
                 last_status = status
             if data is None:

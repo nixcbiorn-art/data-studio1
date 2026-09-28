@@ -81,6 +81,19 @@ class SourceSpec:
     browser_wait_ms: int = 0
     browser_headless: bool = True
 
+
+    # --- формат ответа ---
+    format: str = "json"              # "json" или "xml" (YRL-фиды)
+    xml_record_tag: str = "offer"     # имя тега одной записи в XML
+
+    # --- инкрементальный сбор ---
+    # Если incremental_param задан — скрапер при наличии сохранённого
+    # состояния добавит к URL &<incremental_param>=<last_success-lookback>.
+    # Работает только в обычном HTTP-режиме без split_param.
+    incremental_param: str = ""
+    incremental_lookback_minutes: int = 0
+    incremental_format: str = "%Y-%m-%dT%H:%M:%S"
+
     # --- пул ---
     external: bool = False
 
