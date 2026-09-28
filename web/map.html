@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карта — Data Studio</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
+      onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+<style>
+  body { padding: 16px 20px; }
+  #bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+  #layout { display: grid; grid-template-columns: 1fr 340px; gap: 14px; height: calc(100vh - 190px); min-height: 420px; }
+  #mapwrap { position: relative; min-width: 0; }
+  #map { height: 100%; border: 1px solid var(--line); border-radius: var(--radius-lg); background: #0e131a; }
+  #side { overflow-y: auto; border: 1px solid var(--line-soft); border-radius: var(--radius-lg); background: var(--panel); padding: 8px; }
+  .item { display: flex; gap: 9px; padding: 6px; border-radius: var(--radius-sm); cursor: pointer; align-items: center; }
+  .item:hover { background: var(--accent-soft); }
+  .item .th { width: 56px; height: 42px; flex: 0 0 56px; border-radius: 4px; background: var(--bg); object-fit: cover; }
+  .item .t { font-size: 12px; line-height: 1.3; min-width: 0; }
+  .item .t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+  #grad { width: 140px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, hsl(210 85% 55%), hsl(115 85% 55%), hsl(20 85% 55%)); }
+  .leaflet-popup-content { font: 12.5px/1.45 var(--sans); color: #111; }
+  .leaflet-popup-content img { display: block; max-width: 240px; margin-top: 6px; border-radius: 4px; }
+
+  /* всплывающая панель фильтров */
+  #fpop { position: absolute; z-index: 1000; top: 10px; left: 10px; display: none;
+          width: min(320px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto;
+          background: rgba(20, 25, 32, .97); border: 1px solid var(--line); border-radius: var(--radius-lg);
+          padding: 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, .45); font-size: 12px; }
+  #fpop h4 { margin: 0 0 8px; font-size: 12.5px; }
+  #fpop .fld { margin-bottom: 9px; }
+  #fpop label { display: block; font-size: 10.5px; color: var(--muted); margin-bottom: 3px; letter-spacing: .2px; }
+  #fpop select, #fpop input[type=text] { width: 100%; font-size: 12px; padding: 5px 6px; }
+  #fpop .rng { display: flex; gap: 6px; }
+  #fpop .rng input { width: 50%; font-size: 12px; padding: 5px 6px; }
+  #fpop .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  #fpop .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--panel-2);
+                border: 1px solid var(--line); border-radius: 20px; padding: 2px 8px; font-size: 11px; }
+  #fpop .chip b { font-weight: 600; }
+  #fpop .chip i { font-style: normal; cursor: pointer; opacity: .6; }
+  #fpop .chip i:hover { opacity: 1; color: var(--accent-hi); }
+  #fpop .btns { display: flex; gap: 6px; margin-top: 4px; }
+  #fpop .btns button { flex: 1; font-size: 11.5px; padding: 6px 8px; }
+  #fbtn.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-hi); }
+  #fcount { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+  /* панель «что под маркером» */
+  #hitpop { position: absolute; z-index: 1001; top: 10px; right: 10px; display: none;
+            width: min(280px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto;
+            background: rgba(20, 25, 32, .97); border: 1px solid var(--line); border-radius: var(--radius-lg);
+            padding: 10px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, .45); font-size: 12px; }
+  #hitpop h4 { margin: 0 0 6px; font-size: 12px; }
+  #hitpop .hrow { padding: 5px 6px; border-radius: var(--radius-sm); cursor: pointer; }
+  #hitpop .hrow:hover { background: var(--accent-soft); }
+  #hitpop .x { position: absolute; top: 4px; right: 8px; cursor: pointer; color: var(--muted); font-size: 14px; }
+  #hitpop .x:hover { color: var(--text); }
+
+  @media (max-width: 900px) { #layout { grid-template-columns: 1fr; height: auto; } #mapwrap { height: 60vh; } #side { max-height: 40vh; } }
+</style>
+</head>
+<body>
+<div class="page-head">
+  <h2>Карта</h2>
+  <span class="hint">только просмотр · картинки грузит ваш браузер прямо с сайта-источника, приложение их не скачивает и не хранит</span>
+  <div class="spacer"></div>
+  <button id="share" title="Скопировать ссылку с текущими настройками карты">🔗 ссылка на вид</button>
+  <a class="btn" href="/">← в приложение</a>
+</div>
+
+<div id="bar">
+  <label class="field">таблица <select id="table"></select></label>
+  <label class="field">группировать по <select id="group"></select></label>
+  <label class="field">показатель (цвет) <select id="metric"></select></label>
+  <label class="field">широта <select id="lat"></select></label>
+  <label class="field">долгота <select id="lon"></select></label>
+  <label class="field">адрес <select id="addr"></select></label>
+  <label class="field">картинка <select id="img"></select></label>
+  <label class="field">название <select id="name"></select></label>
+  <label class="field">город для уточнения <input id="city" placeholder="Москва" style="width:120px"></label>
+  <button class="primary" id="go">Показать</button>
+  <button id="geo" disabled title="Координат нет — определить по адресам через OpenStreetMap (по 1 запросу в секунду, результат запоминается в браузере)">Найти координаты по адресам</button>
+  <button id="stop" disabled>Стоп</button>
+</div>
+<div class="row" style="margin-bottom:10px">
+  <label class="inline"><input type="checkbox" id="tiles" checked> подложка OpenStreetMap</label>
+  <label class="inline"><input type="checkbox" id="thumbs" checked> превью в списке справа</label>
+  <div id="legend"><span id="lmin"></span><span id="grad"></span><span id="lmax"></span></div>
+  <span class="muted tiny" id="status"></span>
+</div>
+
+<div id="layout">
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="fpop"></div>
+    <div id="hitpop"></div>
+  </div>
+  <div id="side"><div class="empty tiny">Выберите таблицу и нажмите «Показать».</div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>if (typeof L === 'undefined') document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');</script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = (v) => (v === null || v === undefined || isNaN(v)) ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(v);
+const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const quant = (s, q) => s[Math.min(s.length - 1, Math.max(0, Math.floor(q * (s.length - 1))))];
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+async function api(route, params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) qs.append(k, typeof v === 'object' ? JSON.stringify(v) : v);
+  const r = await fetch(`/api/${route}?${qs}`);
+  const d = await r.json();
+  if (d && d.error) throw new Error(d.error);
+  return d;
+}
+const status = (t) => { $('status').textContent = t || ''; };
+
+/* ── карта ── */
+let map = null, tileLayer = null, layer = null, points = [], allPoints = [], stopFlag = false;
+if (typeof L === 'undefined') {
+  $('map').innerHTML = '<div class="empty">Не загрузилась библиотека карты (нужен интернет для Leaflet).</div>';
+} else {
+  map = L.map('map', { preferCanvas: true }).setView([55.75, 37.62], 9);
+  tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  layer = L.layerGroup().addTo(map);
+  $('tiles').onchange = () => $('tiles').checked ? tileLayer.addTo(map) : map.removeLayer(tileLayer);
+}
+
+/* ── состояние страницы в URL (ссылка «поделиться») + память последней таблицы ── */
+const STATE_IDS = ['table', 'group', 'metric', 'lat', 'lon', 'addr', 'img', 'name', 'city'];
+const LAST_TABLE_KEY = 'ds_map_last_table';
+function writeState() {
+  try {
+    const o = {};
+    STATE_IDS.forEach((id) => { const v = $(id).value.trim(); if (v) o[id] = v; });
+    if (filters.length) o.f = filters;
+    if (!$('tiles').checked) o.t = 0;
+    if (!$('thumbs').checked) o.h = 0;
+    history.replaceState(null, '', location.pathname + '?' + new URLSearchParams({ s: JSON.stringify(o) }));
+    if ($('table').value) localStorage.setItem(LAST_TABLE_KEY, $('table').value);
+  } catch { /* не критично */ }
+}
+function readState() {
+  try {
+    const s = new URLSearchParams(location.search).get('s');
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+
+/* ── справочник колонок ── */
+let cols = [];
+const fillSel = (id, list, guess, empty = '— нет —') => {
+  const s = $(id); s.innerHTML = '';
+  s.appendChild(new Option(empty, ''));
+  list.forEach((c) => s.appendChild(new Option(c.label || c.name, c.name)));
+  s.value = guess || '';
+};
+const pick = (re, list) => (list.find((c) => re.test(c.name)) || {}).name || '';
+
+async function loadColumns() {
+  const info = await api('columns', { table: $('table').value });
+  cols = info.columns || [];
+  const num = cols.filter((c) => /INT|REAL|NUM|FLOA|DOUB/.test(c.type || ''));
+  const imgs = cols.filter((c) => /image|photo|img|plan|фото|планир/i.test(c.name + ' ' + (c.label || '')));
+  fillSel('group', cols, pick(/housing_complex_name|complex_name|project_name|(^|_)complex$/i, cols));
+  fillSel('metric', num, pick(/price_per_sqm|price_per_m2|ppm/i, num) || pick(/price/i, num));
+  fillSel('lat', cols, pick(/(^|_|\.)(lat|latitude)$|широт/i, cols));
+  fillSel('lon', cols, pick(/(^|_|\.)(lon|lng|longitude)$|долгот/i, cols));
+  fillSel('addr', cols, pick(/address|адрес/i, cols));
+  const imgGuess = pick(/thumb/i, imgs) || pick(/preview/i, imgs) || pick(/url|link/i, imgs) || (imgs[0] || {}).name || '';
+  fillSel('img', cols, imgGuess);
+  fillSel('name', cols, pick(/(^|_)name$|title|назв/i, cols));
+  updateGeoButton();
+}
+async function init() {
+  const meta = await api('meta');
+  const tables = (meta.tables || []).filter((x) => x.name !== 'comparison_vs_previous');
+  const t = $('table'); t.innerHTML = '';
+  tables.forEach((x) => t.appendChild(new Option(`${x.title || x.name} (${x.rows})`, x.name)));
+  const saved = readState();
+  let lastTable = '';
+  try { lastTable = localStorage.getItem(LAST_TABLE_KEY) || ''; } catch { /* приватный режим */ }
+  const names = tables.map((x) => x.name);
+  const cur = (saved && saved.table && names.includes(saved.table) && saved.table)
+    || (names.includes(lastTable) && lastTable)
+    || t.value || names[0] || '';
+  t.value = cur;
+  window._tables = [...t.options].map((o) => [o.value, o.text]);
+  await loadColumns();
+  restoreTables(cur);
+  if (saved) {
+    ['group', 'metric', 'lat', 'lon', 'addr', 'img', 'name', 'city'].forEach((id) => {
+      if (saved[id] != null) $(id).value = saved[id];
+    });
+    if (saved.t === 0) { $('tiles').checked = false; if (map) map.removeLayer(tileLayer); }
+    if (saved.h === 0) $('thumbs').checked = false;
+    filters = Array.isArray(saved.f) ? saved.f : [];
+  }
+  if (cur) {
+    renderFilters();
+    if (saved && saved.f) applyFilters();
+    $('go').click();          // автопоказ: карта сразу с данными, статус обновится сам
+  }
+}
+function restoreTables(cur) {
+  const t = $('table'); t.innerHTML = '';
+  window._tables.forEach(([v, txt]) => t.appendChild(new Option(txt, v)));
+  t.value = cur;
+}
+$('table').onchange = async () => {
+  const cur = $('table').value;
+  filters = [];
+  facetCache = new Map();
+  await loadColumns();
+  restoreTables(cur);
+  renderFilters();
+  writeState();
+  if (cur) $('go').click();   // при смене таблицы сразу перерисовываем карту
+};
+['group', 'metric', 'lat', 'lon', 'addr', 'img', 'name'].forEach((id) => $(id).addEventListener('change', writeState));
+['lat', 'lon', 'addr'].forEach((id) => $(id).addEventListener('change', updateGeoButton));
+$('city').addEventListener('input', debounce(writeState, 400));
+function updateGeoButton() { $('geo').disabled = !($('addr').value && !($('lat').value && $('lon').value)); }
+
+/* ── фильтры поверх карты ── */
+let filters = [];           // [{field, kind, ...}]
+let facetCache = new Map(); // field -> Promise(values)
+const colByName = (n) => cols.find((c) => c.name === n) || {};
+const isNumCol = (c) => /INT|REAL|NUM|FLOA|DOUB/.test(c.type || '');
+const labelOf = (n) => colByName(n).label || n;
+
+async function getFacetValues(field) {
+  if (!facetCache.has(field)) {
+    facetCache.set(field, (async () => {
+      try {
+        const r = await api('facets', { table: $('table').value, field, limit: 300 });
+        return (r.values || []).map((v) => v.value).filter((v) => v !== null && v !== '');
+      } catch { return []; }
+    })());
+  }
+  return facetCache.get(field);
+}
+
+function renderFilters() {
+  const pop = $('fpop');
+  if (!pop.dataset.built) buildFilterPanel();
+  syncFilterOptions();
+  paintChips();
+}
+
+function buildFilterPanel() {
+  const pop = $('fpop');
+  pop.innerHTML = `
+    <h4>Фильтры карты</h4>
+    <div class="fld"><label>поле</label><select id="ffld"></select></div>
+    <div class="fld" id="fvalbox"></div>
+    <div class="btns"><button id="fadd" class="primary">＋ добавить фильтр</button></div>
+    <div class="chips" id="fchips"></div>
+    <div class="btns" style="margin-top:8px">
+      <button id="fclear">Сбросить всё</button>
+      <button id="fclose">Готово</button>
+    </div>`;
+  pop.dataset.built = '1';
+  $('fadd').onclick = addFilterFromPanel;
+  $('fclose').onclick = () => toggleFpop(false);
+  $('fclear').onclick = () => { filters = []; syncFilterOptions(); applyFilters(); };
+  $('ffld').onchange = drawValueEditor;
+}
+
+function syncFilterOptions() {
+  const sel = $('ffld');
+  if (!sel) return;
+  const keep = sel.value;
+  sel.innerHTML = '';
+  cols.forEach((c) => sel.appendChild(new Option(c.label || c.name, c.name)));
+  sel.value = keep && cols.some((c) => c.name === keep) ? keep : (cols[0] || {}).name || '';
+  drawValueEditor();
+}
+
+function drawValueEditor() {
+  const box = $('fvalbox');
+  if (!box) return;
+  const name = $('ffld').value;
+  const c = colByName(name);
+  box.innerHTML = '';
+  if (!name) { box.innerHTML = '<span class="muted tiny">Сначала выберите поле.</span>'; return; }
+  if (isNumCol(c)) {
+    box.innerHTML = `<label>диапазон значений (${esc(labelOf(name))})</label>
+      <div class="rng"><input type="number" id="fmin" placeholder="от" step="any">
+      <input type="number" id="fmax" placeholder="до" step="any"></div>`;
+  } else {
+    const lab = document.createElement('label');
+    lab.textContent = `${labelOf(name)} — значения:`;
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.id = 'fsearch'; inp.placeholder = 'фильтровать список…';
+    const chips = document.createElement('div');
+    chips.className = 'chips'; chips.id = 'fvals';
+    box.append(lab, inp, chips);
+    const load = debounce(async () => {
+      const vals = await getFacetValues(name);
+      const q = inp.value.toLowerCase();
+      const hit = vals.filter((v) => String(v).toLowerCase().includes(q));
+      chips.innerHTML = '';
+      hit.slice(0, 60).forEach((v) => {
+        const b = document.createElement('button');
+        b.className = 'chip'; b.type = 'button';
+        b.dataset.val = String(v);
+        b.textContent = String(v).slice(0, 40);
+        b.onclick = () => {
+          const f = filters.find((x) => x.field === name && x.kind === 'in');
+          if (f) {
+            const i = f.values.indexOf(String(v));
+            if (i >= 0) f.values.splice(i, 1); else f.values.push(String(v));
+            if (!f.values.length) filters = filters.filter((x) => x !== f);
+          } else filters.push({ field: name, kind: 'in', values: [String(v)] });
+          applyFilters();
+          markSelectedVals();
+        };
+        chips.appendChild(b);
+      });
+      if (!hit.length) chips.innerHTML = '<span class="muted tiny">нет значений</span>';
+      markSelectedVals();
+    }, 250);
+    inp.oninput = load;
+    load();
+    function markSelectedVals() {
+      const f = filters.find((x) => x.field === name && x.kind === 'in');
+      [...chips.children].forEach((b) => {
+        const on = !!(f && f.values.includes(b.dataset.val));
+        b.style.borderColor = on ? 'var(--accent)' : 'var(--line)';
+        b.style.color = on ? 'var(--accent-hi)' : '';
+      });
+    }
+  }
+}
+
+function addFilterFromPanel() {
+  const name = $('ffld').value;
+  if (!name) return;
+  const c = colByName(name);
+  if (isNumCol(c)) {
+    const mn = parseFloat($('fmin').value), mx = parseFloat($('fmax').value);
+    if (isNaN(mn) && isNaN(mx)) { status('Укажите хотя бы одну границу диапазона.'); return; }
+    filters = filters.filter((f) => !(f.field === name && f.kind === 'range'));
+    filters.push({ field: name, kind: 'range', min: isNaN(mn) ? null : mn, max: isNaN(mx) ? null : mx });
+  } else {
+    const f = filters.find((x) => x.field === name && x.kind === 'in');
+    if (!f || !f.values.length) { status('Сначала отметьте значения в списке.'); return; }
+  }
+  applyFilters();
+}
+
+function paintChips() {
+  const box = $('fchips');
+  if (!box) return;
+  box.innerHTML = '';
+  filters.forEach((f, i) => {
+    const c = document.createElement('span');
+    c.className = 'chip';
+    const txt = f.kind === 'range'
+      ? `${labelOf(f.field)}: ${f.min ?? '…'} – ${f.max ?? '…'}`
+      : `${labelOf(f.field)}: ${f.values.join(', ')}`;
+    c.innerHTML = `<b>${esc(txt)}</b><i title="убрать фильтр">✕</i>`;
+    c.querySelector('i').onclick = () => { filters.splice(i, 1); applyFilters(); };
+    box.appendChild(c);
+  });
+  const cnt = $('fcount');
+  if (cnt) cnt.textContent = filters.length ? `фильтров: ${filters.length}` : '';
+}
+
+function toggleFpop(on) {
+  const pop = $('fpop');
+  const show = on !== undefined ? on : pop.style.display !== 'block';
+  pop.style.display = show ? 'block' : 'none';
+  $('fbtn').classList.toggle('active', show);
+  if (show) renderFilters();
+}
+
+function matchesFilters(p) {
+  return filters.every((f) => {
+    const raw = p.fields ? p.fields[f.field] : undefined;
+    if (f.kind === 'range') {
+      const n = parseFloat(String(raw ?? '').replace(/\s/g, '').replace(',', '.'));
+      if (isNaN(n)) return false;
+      if (f.min != null && n < f.min) return false;
+      if (f.max != null && n > f.max) return false;
+      return true;
+    }
+    if (f.kind === 'in') return f.values.some((v) => String(raw ?? '').toLowerCase() === v.toLowerCase());
+    return true;
+  });
+}
+
+function applyFilters() {
+  points = allPoints.filter(matchesFilters);
+  paintChips();
+  writeState();
+  render();
+}
+
+/* ── загрузка строк ── */
+async function loadRows() {
+  const want = ['group', 'metric', 'lat', 'lon', 'addr', 'img', 'name'].map((k) => $(k).value).filter(Boolean);
+  // поля активных фильтров всегда нужны в выборке, иначе они «не видят» значений и отсекают всё
+  const extraFields = [...new Set(filters.map((f) => f.field))].filter((x) => cols.some((c) => c.name === x));
+  const select = [...new Set([...want, ...extraFields])];
+  if (!select.length) throw new Error('Не выбрано ни одного поля.');
+  const rows = [];
+  for (let page = 1; page <= 40; page++) {
+    status(`загружаю данные… стр. ${page}, строк ${rows.length}`);
+    const r = await api('query', { table: $('table').value, q: { page, page_size: 500, select, include_hidden: true } });
+    rows.push(...r.rows);
+    if (page >= r.pages) break;
+  }
+  return rows;
+}
+
+/* ── геокод-кэш (только в браузере) ── */
+const GEO_KEY = 'ds_geo_cache_v1';
+const geoCache = (() => { try { return JSON.parse(localStorage.getItem(GEO_KEY) || '{}'); } catch { return {}; } })();
+const saveGeo = () => { try { localStorage.setItem(GEO_KEY, JSON.stringify(geoCache)); } catch { /* полон */ } };
+const geoKey = (a) => `${(a || '').trim().toLowerCase()}|${$('city').value.trim().toLowerCase()}`;
+
+/* ── сборка точек ── */
+function buildPoints(rows) {
+  const f = Object.fromEntries(['group', 'metric', 'lat', 'lon', 'addr', 'img', 'name'].map((k) => [k, $(k).value]));
+  const num = (v) => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n; };
+  const buckets = new Map();
+  rows.forEach((r, i) => {
+    const key = f.group ? String(r[f.group] ?? '(пусто)') : `#${i}`;
+    let b = buckets.get(key);
+    if (!b) {
+      b = { key, n: 0, lats: [], lons: [], vals: [], addr: '', img: '', name: '', fields: {} };
+      buckets.set(key, b);
+    }
+    b.n++;
+    // «представительские» значения полей — из первой записи бакета (для фильтров)
+    Object.keys(r).forEach((k) => { if (!(k in b.fields)) b.fields[k] = r[k]; });
+    const la = f.lat ? num(r[f.lat]) : null, lo = f.lon ? num(r[f.lon]) : null;
+    if (la !== null && lo !== null && Math.abs(la) <= 90 && Math.abs(lo) <= 180) { b.lats.push(la); b.lons.push(lo); }
+    const v = f.metric ? num(r[f.metric]) : null;
+    if (v !== null) b.vals.push(v);
+    if (!b.addr && f.addr && r[f.addr]) b.addr = String(r[f.addr]);
+    if (!b.img && f.img && /^https?:\/\//i.test(String(r[f.img] || ''))) b.img = String(r[f.img]);
+    if (!b.name && f.name && r[f.name]) b.name = String(r[f.name]);
+  });
+  const out = [];
+  buckets.forEach((b) => {
+    let lat = b.lats.length ? median(b.lats) : null, lon = b.lons.length ? median(b.lons) : null;
+    if (lat === null && b.addr) { const g = geoCache[geoKey(b.addr)]; if (g) [lat, lon] = g; }
+    out.push({ ...b, title: b.name || (f.group ? b.key : ''), lat, lon, value: b.vals.length ? median(b.vals) : null });
+  });
+  return out;
+}
+
+/* ── отрисовка ── */
+function render() {
+  if (!map) return;
+  layer.clearLayers();
+  hideHitPop();
+  const withGeo = points.filter((p) => p.lat !== null && p.lon !== null);
+  const vals = withGeo.map((p) => p.value).filter((v) => v !== null).sort((a, b) => a - b);
+  const lo = vals.length ? quant(vals, 0.05) : 0, hi = vals.length ? quant(vals, 0.95) : 1;
+  const colorOf = (v) => {
+    if (v === null) return '#8792a1';
+    const t = hi === lo ? 0.5 : Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    return `hsl(${210 - 190 * t} 85% 55%)`;
+  };
+  $('lmin').textContent = vals.length ? fmt(lo) : '';
+  $('lmax').textContent = vals.length ? fmt(hi) : '';
+  const bounds = [];
+  withGeo.forEach((p) => {
+    const m = L.circleMarker([p.lat, p.lon], {
+      radius: Math.min(16, 5 + Math.sqrt(p.n)), weight: 1, color: '#0a0d13',
+      fillColor: colorOf(p.value), fillOpacity: 0.85,
+    });
+    m.bindPopup(() => popupHtml(p));   // картинка запрашивается только при открытии
+    m.on('click', () => showHitsAt(p));
+    m.addTo(layer);
+    p._m = m;
+    bounds.push([p.lat, p.lon]);
+  });
+  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+  renderList(withGeo);
+  const missing = points.length - withGeo.length;
+  status(`точек на карте: ${withGeo.length} из ${points.length}` +
+    (missing ? ` · без координат: ${missing}` : '') +
+    (allPoints.length !== points.length ? ` · всего: ${allPoints.length}, отфильтровано: ${allPoints.length - points.length}` : ''));
+}
+function popupHtml(p) {
+  const img = p.img ? `<img src="${esc(p.img)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : '';
+  return `<b>${esc(p.title)}</b><br>${p.n > 1 ? `записей: ${p.n}<br>` : ''}` +
+    `${p.value !== null ? `показатель: ${fmt(p.value)}<br>` : ''}${p.addr ? esc(p.addr) : ''}${img}`;
+}
+function renderList(list) {
+  const side = $('side');
+  const top = [...list].sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity)).slice(0, 60);
+  if (!top.length) {
+    side.innerHTML = allPoints.length && !points.length
+      ? '<div class="empty tiny">Ни одна точка не проходит под фильтры.<br><button onclick="toggleFpop(true)" style="margin-top:8px">Изменить фильтры</button></div>'
+      : '<div class="empty tiny">Нет точек с координатами.</div>';
+    return;
+  }
+  const showImg = $('thumbs').checked;
+  side.innerHTML = '';
+  top.forEach((p) => {
+    const d = document.createElement('div');
+    d.className = 'item';
+    d.innerHTML = (showImg && p.img
+      ? `<img class="th" loading="lazy" referrerpolicy="no-referrer" src="${esc(p.img)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'th'}))">`
+      : '<div class="th"></div>') +
+      `<div class="t"><b>${esc(p.title)}</b><span class="muted">${fmt(p.value)}${p.n > 1 ? ` · ${p.n} зап.` : ''}</span></div>`;
+    d.onclick = () => { map.flyTo([p.lat, p.lon], Math.max(map.getZoom(), 14)); p._m.openPopup(); };
+    side.appendChild(d);
+  });
+}
+$('thumbs').onchange = () => { renderList(points.filter((p) => p.lat !== null)); writeState(); };
+
+/* ── «что под маркером»: все точки в радиусе клика ── */
+function showHitsAt(centerPoint) {
+  if (!map) return;
+  const zoom = map.getZoom();
+  const metersPerPx = 40075016.686 * Math.cos(centerPoint.lat * Math.PI / 180) / (256 * Math.pow(2, zoom));
+  const rMeters = 28 * metersPerPx;                       // ~28 пикселей вокруг клика
+  const rDegLat = rMeters / 111320;
+  const rDegLon = rMeters / (111320 * Math.cos(centerPoint.lat * Math.PI / 180) || 1);
+  const hits = points.filter((p) => p.lat !== null && p.lon !== null &&
+    Math.abs(p.lat - centerPoint.lat) <= rDegLat && Math.abs(p.lon - centerPoint.lon) <= rDegLon);
+  const pop = $('hitpop');
+  if (hits.length < 2) { hideHitPop(); return; }
+  pop.innerHTML = `<span class="x" title="закрыть">✕</span><h4>Под маркером: ${hits.length}</h4>`;
+  pop.querySelector('.x').onclick = hideHitPop;
+  [...hits].sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity)).slice(0, 40).forEach((p) => {
+    const d = document.createElement('div');
+    d.className = 'hrow';
+    d.innerHTML = `<b>${esc(p.title)}</b> <span class="muted">${fmt(p.value)}${p.n > 1 ? ` · ${p.n} зап.` : ''}</span>`;
+    d.onclick = () => { map.setView([p.lat, p.lon], Math.max(map.getZoom(), 15)); p._m.openPopup(); };
+    pop.appendChild(d);
+  });
+  pop.style.display = 'block';
+}
+function hideHitPop() { const pop = $('hitpop'); if (pop) pop.style.display = 'none'; }
+if (map) map.on('click', hideHitPop);
+
+/* ── кнопки ── */
+$('go').onclick = async () => {
+  try {
+    $('go').disabled = true;
+    facetCache = new Map();
+    const rows = await loadRows();
+    allPoints = buildPoints(rows);
+    points = allPoints.filter(matchesFilters);
+    paintChips();
+    writeState();
+    render();
+  } catch (e) { status('Ошибка: ' + e.message); } finally { $('go').disabled = false; }
+};
+
+$('geo').onclick = async () => {
+  if (!points.length) { status('Сначала нажмите «Показать».'); return; }
+  const todo = points.filter((p) => p.addr && p.lat === null && !(geoKey(p.addr) in geoCache)).slice(0, 400);
+  if (!todo.length) { status('Все адреса уже определены — обновляю карту.'); render(); return; }
+  stopFlag = false; $('stop').disabled = false; $('geo').disabled = true;
+  let done = 0;
+  for (const p of todo) {
+    if (stopFlag) break;
+    const q = p.addr + ($('city').value.trim() ? ', ' + $('city').value.trim() : '');
+    status(`ищу координаты: ${++done} из ${todo.length}`);
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q));
+      const j = await r.json();
+      geoCache[geoKey(p.addr)] = j[0] ? [parseFloat(j[0].lat), parseFloat(j[0].lon)] : null;
+      if (j[0]) { p.lat = parseFloat(j[0].lat); p.lon = parseFloat(j[0].lon); }
+    } catch { geoCache[geoKey(p.addr)] = null; }
+    if (done % 10 === 0) { saveGeo(); render(); }
+    await new Promise((res) => setTimeout(res, 1100));   // не чаще 1 запроса в секунду
+  }
+  saveGeo(); render();
+  $('stop').disabled = true; updateGeoButton();
+};
+$('stop').onclick = () => { stopFlag = true; };
+
+$('share').onclick = async () => {
+  writeState();
+  const url = location.href;
+  try { await navigator.clipboard.writeText(url); status('Ссылка на текущий вид скопирована в буфер обмена.'); }
+  catch { prompt('Скопируйте ссылку:', url); }
+};
+
+init().catch((e) => status('Ошибка: ' + e.message));
+</script>
+
+<!-- кнопка панели фильтров добавляется после разбора DOM -->
+<script>
+(function () {
+  const row = document.querySelector('.row');
+  const btn = document.createElement('button');
+  btn.id = 'fbtn';
+  btn.title = 'Фильтровать точки прямо на карте';
+  btn.innerHTML = '⚙ Фильтры <span id="fcount"></span>';
+  const legend = document.getElementById('legend');
+  if (legend && legend.parentNode) legend.parentNode.insertBefore(btn, legend);
+  else if (row) row.appendChild(btn);
+  btn.onclick = () => toggleFpop();
+})();
+</script>
+</body>
+</html>
