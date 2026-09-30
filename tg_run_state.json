@@ -1,0 +1,19 @@
+{
+  "running": true,
+  "pid": 9652,
+  "started_at": "2026-09-30T11:09:28",
+  "finished_at": null,
+  "exit_code": null,
+  "args": [
+    "--only",
+    "a101_apartments",
+    "apartments",
+    "fsk_apartments",
+    "housing_complexes",
+    "jcat_lsr_apartments_normalized",
+    "regulations",
+    "tariffs"
+  ],
+  "initiator": "1037883700",
+  "log_file": "tg_run.log"
+}

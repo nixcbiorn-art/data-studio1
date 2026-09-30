@@ -6,10 +6,14 @@
   "xml_record_tag": "offer",
   "url": "https://www.rbi.ru/upload/feeds/feed_advecs_all.xml",
   "page_size": 1000000,
-  "data_path": ["items"],
-  "total_path": ["total"],
+  "data_path": [
+    "items"
+  ],
+  "total_path": [
+    "total"
+  ],
   "flatten_depth": 3,
-  "id_field": "internal-id",
+  "id_field": "external_id",
   "name_field": "apartment",
   "mapping": {
     "external_id": "internal-id",
@@ -47,11 +51,32 @@
     "building_state": "building-state"
   },
   "numeric_fields": [
-    "price", "price_base", "area", "living_space", "kitchen_space",
-    "floor", "floors_total", "rooms"
+    "price",
+    "price_base",
+    "area",
+    "living_space",
+    "kitchen_space",
+    "floor",
+    "floors_total",
+    "rooms"
   ],
-  "group_fields": ["building_name", "rooms", "renovation"],
-  "track_fields": ["price", "price_base", "deal_status"],
-  "positive_fields": ["price", "area"],
-  "required_fields": ["external_id", "price", "area"]
+  "group_fields": [
+    "building_name",
+    "rooms",
+    "renovation"
+  ],
+  "track_fields": [
+    "price",
+    "price_base",
+    "deal_status"
+  ],
+  "positive_fields": [
+    "price",
+    "area"
+  ],
+  "required_fields": [
+    "external_id",
+    "price",
+    "area"
+  ]
 }

@@ -261,6 +261,53 @@ def db_for_table(table: str):
     return EXTERNAL_DB if table in _external_table_names() else DATA_DB
 
 
+# ──────────────────────────────────────────────────────────────
+#  SQL-КОНСОЛЬ: РАБОТА СО ВСЕМИ БАЗАМИ
+# ──────────────────────────────────────────────────────────────
+# id → (путь, человекочитаемое название). Используется в /api/sql,
+# /api/sql_databases, /api/sql_schema и в экспорте результата SELECT.
+def sql_databases() -> list:
+    items = []
+    for db_id, path, title in (
+        ("redcat",   DATA_DB,     "Redcat — собранные данные"),
+        ("external", EXTERNAL_DB, "Внешние источники"),
+        ("studio",   STUDIO_DB,   "Мои правки, заметки, журнал API"),
+        ("stats",    STATS_DB,    "История запусков и аномалии"),
+    ):
+        if not path.exists():
+            continue
+        items.append({
+            "id": db_id,
+            "title": title,
+            "path": str(path),
+            "name": path.name,
+            "size": path.stat().st_size,
+        })
+    return items
+
+
+def resolve_sql_db(db_id: str):
+    """Имя базы → путь. Понятная ошибка, если базы нет."""
+    mapping = {
+        "redcat":   DATA_DB,
+        "external": EXTERNAL_DB,
+        "studio":   STUDIO_DB,
+        "stats":    STATS_DB,
+    }
+    if not db_id:
+        db_id = "redcat"
+    if db_id not in mapping:
+        raise dataops.DataError(
+            f"Неизвестная база «{db_id}». Доступные: "
+            f"{', '.join(sorted(mapping))}.")
+    path = mapping[db_id]
+    if not path.exists():
+        raise dataops.DataError(
+            f"Файл базы не найден: {path.name}. "
+            f"Запустите сбор или откройте вкладку, которая её создаёт.")
+    return path
+
+
 def id_field_for(table, cols) -> str:
     spec = load_specs().get(table)
     names = [c["name"] for c in cols]
@@ -514,6 +561,91 @@ def _csv_pad_row(row: list, n: int) -> tuple:
     return tuple(row[:n])
 
 
+def _sanitize_filters(db_path, table, filters):
+    """Возвращает (safe, dropped, virtual).
+
+    safe     — фильтры по существующим колонкам,
+    dropped  — имена колонок, которых нет (для лога),
+    virtual  — фильтры по «виртуальным» колонкам, которые надо
+               наложить особым способом. Сейчас поддерживается
+               developer_name: если его нет в таблице, но есть
+               housing_complex_id, фильтр применяется через JOIN
+               с housing_complexes.
+    """
+    if not filters:
+        return [], [], []
+    try:
+        cols = {c["name"] for c in dataops.columns(db_path, table)}
+    except Exception:
+        return list(filters), [], []
+    safe, dropped, virtual = [], [], []
+    for f in filters:
+        if not isinstance(f, dict):
+            continue
+        fld = f.get("field")
+        if not fld:
+            continue
+        if fld in cols:
+            safe.append(f)
+        elif fld == "developer_name" and "housing_complex_id" in cols:
+            # developer_name → через JOIN с housing_complexes.
+            virtual.append(f)
+        else:
+            dropped.append(fld)
+    return safe, dropped, virtual
+
+
+def _apply_virtual_filters(db_path, table, virtual):
+    """Возвращает SQL-фрагмент WHERE для «виртуальных» фильтров.
+
+    Сейчас: developer_name. Проверяем, что в базе есть таблица
+    housing_complexes с колонками id и developer_name. Формируем
+    EXISTS-подзапрос.
+    """
+    if not virtual:
+        return "", []
+    conn = dataops.connect_ro(db_path)
+    try:
+        hc_cols = {c["name"] for c in dataops.columns(db_path, "housing_complexes")}
+    except Exception:
+        conn.close()
+        return "", []
+    conn.close()
+
+    if "id" not in hc_cols or "developer_name" not in hc_cols:
+        return "", []
+
+    clauses, args = [], []
+    for f in virtual:
+        if f.get("field") != "developer_name":
+            continue
+        op = str(f.get("op") or "eq").lower()
+        val = str(f.get("value") or "")
+        if not val:
+            continue
+        if op == "eq":
+            sql_op, sql_val = "=", val
+        elif op == "contains":
+            sql_op, sql_val = "LIKE", f"%{val}%"
+        elif op == "starts":
+            sql_op, sql_val = "LIKE", f"{val}%"
+        elif op == "ends":
+            sql_op, sql_val = "LIKE", f"%{val}"
+        elif op == "ne":
+            sql_op, sql_val = "<>", val
+        else:
+            continue
+
+        clauses.append(
+            f'EXISTS (SELECT 1 FROM "housing_complexes" hc '
+            f'WHERE CAST(hc."id" AS TEXT) = '
+            f'CAST("{table}"."housing_complex_id" AS TEXT) '
+            f'AND hc."developer_name" {sql_op} ?)'
+        )
+        args.append(sql_val)
+    return " AND ".join(clauses), args
+
+
 def _cross_check_report(source_key: str) -> dict:
     """Собирает отчёт по сверке одного внешнего источника с таблицей-соседом.
 
@@ -578,13 +710,43 @@ def _cross_check_report(source_key: str) -> dict:
         left_filters = [f for f in filter_left if f.get("field")]
     elif filter_left and filter_left.get("field"):
         left_filters = [filter_left]
+    left_filters, dropped_left, virtual_left = _sanitize_filters(
+        left_db, source_key, left_filters)
+    _virtual_left_sql, _virtual_left_args = _apply_virtual_filters(
+        left_db, source_key, virtual_left)
+    if virtual_left:
+        print(f"  ℹ️  {source_key}: виртуальные фильтры "
+              f"слева: {[v.get('field') for v in virtual_left]}")
+    if dropped_left:
+        print(f"  ⚠️  {source_key}: фильтры по несуществующим "
+              f"колонкам отброшены: {dropped_left}")
     left_rows = []
     try:
-        stream = dataops.iter_all(left_db, source_key,
-                                  filters=left_filters, match="AND",
-                                  select=left_cols)
-        next(stream, None)
-        left_rows = list(stream)
+        if _virtual_left_sql:
+            from pathlib import Path as _P2
+            import sqlite3 as _sq2
+            _db2 = _P2(left_db)
+            _c2 = _sq2.connect(f"file:{_db2}?mode=ro", uri=True)
+            _c2.row_factory = _sq2.Row
+            _cols2 = ", ".join(f'"{c}"' for c in left_cols)
+            _b2, _a2 = dataops.build_where(
+                _c2, source_key, left_filters or [], "AND")
+            _w2 = _b2 or ""
+            if _w2 and _virtual_left_sql:
+                _w2 += " AND (" + _virtual_left_sql + ")"
+            elif _virtual_left_sql:
+                _w2 = "WHERE (" + _virtual_left_sql + ")"
+            _a2 = list(_a2) + list(_virtual_left_args)
+            _cur2 = _c2.execute(
+                f'SELECT {_cols2} FROM "{source_key}" {_w2}', _a2)
+            left_rows = [dict(r) for r in _cur2.fetchall()]
+            _c2.close()
+        else:
+            stream = dataops.iter_all(left_db, source_key,
+                                      filters=left_filters, match="AND",
+                                      select=left_cols)
+            next(stream, None)
+            left_rows = list(stream)
     except dataops.DataError as e:
         raise dataops.DataError(f"Левая таблица «{source_key}»: {e}") from e
 
@@ -595,15 +757,52 @@ def _cross_check_report(source_key: str) -> dict:
         right_filters = [f for f in filter_right if f.get("field")]
     elif filter_right and filter_right.get("field"):
         right_filters = [filter_right]
+    right_filters, dropped_right, virtual_right = _sanitize_filters(
+        right_db, with_table, right_filters)
+    virtual_right_sql, virtual_right_args = _apply_virtual_filters(
+        right_db, with_table, virtual_right)
+    if dropped_right:
+        print(f"  ⚠️  {source_key}: фильтры справа по "
+              f"несуществующим колонкам отброшены: {dropped_right}")
+    if virtual_right:
+        print(f"  ℹ️  {source_key}: фильтры справа через JOIN: "
+              f"{[v.get('field') for v in virtual_right]}")
     right_rows = []
     try:
-        stream = dataops.iter_all(right_db, with_table,
-                                  filters=right_filters, match="AND",
-                                  select=right_cols)
-        next(stream, None)
-        right_rows = list(stream)
+        if virtual_right_sql:
+            # Есть виртуальные фильтры — читаем через SQL вручную.
+            from pathlib import Path as _P
+            import sqlite3 as _sq
+            _db = _P(right_db)
+            _conn = _sq.connect(f"file:{_db}?mode=ro", uri=True)
+            _conn.row_factory = _sq.Row
+            _cols_sql = ", ".join(
+                f'"{c}"' for c in right_cols)
+            _base, _args = dataops.build_where(
+                _conn, with_table, right_filters or [], "AND")
+            _where = _base or ""
+            if _where and virtual_right_sql:
+                _where += " AND (" + virtual_right_sql + ")"
+            elif virtual_right_sql:
+                _where = "WHERE (" + virtual_right_sql + ")"
+            _args = list(_args) + list(virtual_right_args)
+            _cur = _conn.execute(
+                f'SELECT {_cols_sql} FROM "{with_table}" {_where}',
+                _args)
+            right_rows = [dict(r) for r in _cur.fetchall()]
+            _conn.close()
+        else:
+            stream = dataops.iter_all(right_db, with_table,
+                                      filters=right_filters, match="AND",
+                                      select=right_cols)
+            next(stream, None)
+            right_rows = list(stream)
     except dataops.DataError as e:
         raise dataops.DataError(f"Правая таблица «{with_table}»: {e}") from e
+    except Exception as e:
+        raise dataops.DataError(
+            f"Правая таблица «{with_table}»: {type(e).__name__}: {e}"
+        ) from e
 
     # ---- группируем по нормализованному ключу ----
     def _key(row, col):
@@ -645,6 +844,10 @@ def _cross_check_report(source_key: str) -> dict:
                 right_counts={k: len(right_groups[k]) for k in only_r})["aliases"]
             for lk, rk in found.items():
                 if rk in right_groups and lk in left_groups:
+                    _n_l = len(left_groups[lk])
+                    _n_r = len(right_groups[rk])
+                    print(f"  ⚠️  автосопоставление: "
+                          f"{lk!r} ({_n_l}) → {rk!r} ({_n_r})")
                     left_groups.setdefault(rk, []).extend(left_groups.pop(lk))
                     left_display.setdefault(rk, left_display.pop(lk, lk))
                     auto_added += 1
@@ -930,7 +1133,26 @@ class Handler(BaseHTTPRequestHandler):
                 q.get("filters"), q.get("match", "AND")))
 
         if route == "sql":
-            return self._send(dataops.run_sql(DATA_DB, one("sql", "")))
+            db_path = resolve_sql_db(one("db", "redcat"))
+            return self._send(dataops.run_sql(db_path, one("sql", "")))
+
+        if route == "sql_databases":
+            return self._send({"items": sql_databases()})
+
+        if route == "sql_schema":
+            db_path = resolve_sql_db(one("db", "redcat"))
+            out = []
+            for t in dataops.list_tables(db_path):
+                item = {"name": t["name"], "rows": t["rows"], "schema": []}
+                try:
+                    item["schema"] = [
+                        {"name": c["name"], "type": (c.get("type") or "").upper()}
+                        for c in dataops.columns(db_path, t["name"])
+                    ]
+                except dataops.DataError:
+                    pass
+                out.append(item)
+            return self._send({"items": out})
 
         if route == "search":
             return self._send({
@@ -1676,9 +1898,10 @@ class Handler(BaseHTTPRequestHandler):
             name = f"edits_{stamp}"
 
         elif what == "sql":
-            result = dataops.run_sql(DATA_DB, one("sql", ""))
+            db_path = resolve_sql_db(one("db", "redcat"))
+            result = dataops.run_sql(db_path, one("sql", ""))
             rows, cols = result["rows"], result["columns"]
-            name = f"sql_{stamp}"
+            name = f"sql_{one('db', 'redcat')}_{stamp}"
 
         elif what == "completeness_fields":
             spec = load_specs().get(table)

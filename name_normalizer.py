@@ -236,7 +236,16 @@ def _pair(a: Name, b: Name) -> tuple[float, str]:
     short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
     if (len(short) < len(long_) and long_[:len(short)] == short
             and sum(map(len, short)) >= 4):
-        return 0.86, "contains"               # только с опорой на счётчики
+        # Защита от опасных склеек: если «Спутник» содержится
+        # в «Скай Спутник», это НЕ то же самое. Требуем, чтобы
+        # разница в длине была небольшой (≤ 2 символа) — тогда
+        # это, скорее всего, «ЖК» или «корпус». Иначе — отказ.
+        diff_len = len(long_) - len(short)
+        if diff_len <= 2:
+            return 0.86, "contains"
+        # Разница большая — игнорируем эту пару для auto-match.
+        # Через hc_aliases.json её всё равно можно задать вручную.
+        return 0.5, "contains-too-far"
     score = max(SequenceMatcher(None, a.lat, b.lat).ratio(),
                 SequenceMatcher(None, a.sorted, b.sorted).ratio())
     if a.skel == b.skel and len(a.skel) >= 3:
@@ -335,7 +344,12 @@ def auto_aliases(left_names, right_names, *, min_score: float = 0.9,
                 r = ratio(x, other) if not back_side else ratio(other, x)
                 if r is None:
                     continue
-                if (s >= 0.75 and r >= 1 - count_tol) or (s >= 0.4 and r >= 0.95):
+                # Мягкие совпадения только при очень похожих счётчиках
+                # и заметной схожести названий. Раньше стояло 0.4 — из-за
+                # этого «Тропарево Парк» (286) и «Котельники парк» (301)
+                # сливались в один ЖК, хотя это разные места в Москве.
+                if ((s >= 0.85 and r >= 1 - count_tol)
+                        or (s >= 0.82 and r >= 0.98)):
                     res.append((s, k, w, r))
             return res
 

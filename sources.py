@@ -882,6 +882,51 @@ def parse_payload(raw, spec) -> dict:
     return parser(raw, spec)
 
 
+
+
+
+# ──────────────────────────────────────────────────────────────
+#  ПРЕПРОЦЕССОРЫ ДЛЯ АРХИТЕКТУРЫ /apartments/fast
+# ──────────────────────────────────────────────────────────────
+# UI Redcat показывает цену СО СКИДКОЙ. /apartments/fast возвращает
+# именно её в поле price. Но фильтруется он по estate_id (корпус),
+# а не по housing_complex_id. Список корпусов лежит в ответе
+# housing_complexes/show-apartments-data/{hc_id}.
+#
+# Эти два препроцессора связывают три уровня:
+#   housing_complexes → apartments_estates → apartments.
+
+@register_preprocessor("extract_estates")
+def _extract_estates(payload, hc_id=None):
+    """show-apartments-data/{hc_id} → список корпусов ЖК."""
+    rows = []
+    for est in (payload or {}).get("estates") or []:
+        rows.append({
+            "estate_id": est.get("estate_id"),
+            "housing_complex_id": hc_id,
+            "dom_number": est.get("dom_number"),
+            "korpus_number": est.get("korpus_number"),
+            "stroenie_number": est.get("stroenie_number"),
+            "address": est.get("address"),
+            "total_apartments": est.get("total_apartments"),
+            "floor_min": est.get("floor_number_min"),
+            "floor_max": est.get("floor_number_max"),
+            "delivery_date": est.get("delivery_date"),
+            "delivery_date_formatted": est.get("delivery_date_formatted"),
+        })
+    return rows
+
+
+@register_preprocessor("fast_apartments")
+def _fast_apartments(payload, estate_id=None):
+    """apartments/fast → список лотов + поле estate_id."""
+    rows = []
+    for it in (payload or {}).get("data") or []:
+        row = dict(it)
+        row["estate_id"] = estate_id
+        rows.append(row)
+    return rows
+
 # ──────────────────────────────────────────────────────────────
 #  НОРМАЛИЗАЦИЯ
 # ──────────────────────────────────────────────────────────────

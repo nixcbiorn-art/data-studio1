@@ -6,13 +6,15 @@
   "page_size": 100,
   "page_size_param": "limit",
   "page_number_param": "page",
-  "data_path": ["items"],
+  "data_path": [
+    "items"
+  ],
   "split_param": "project_slug",
   "split_values_from": "fsk_complexes",
   "split_values_field": "slug",
   "concurrency": 3,
   "flatten_depth": 1,
-  "id_field": "externalId",
+  "id_field": "external_id",
   "name_field": "number",
   "mapping": {
     "external_id": "externalId",
@@ -55,15 +57,43 @@
     "price_per_sqm_calc": "price / areaTotal"
   },
   "numeric_fields": [
-    "price", "price_wo_discount", "price_per_sqm", "price_per_sqm_calc",
-    "discount_pct", "area_total", "area_living", "area_kitchen",
-    "floor", "rooms", "bathrooms", "ceiling_height",
-    "mortgage_payment", "mortgage_rate", "crm_category"
+    "price",
+    "price_wo_discount",
+    "price_per_sqm",
+    "price_per_sqm_calc",
+    "discount_pct",
+    "area_total",
+    "area_living",
+    "area_kitchen",
+    "floor",
+    "rooms",
+    "bathrooms",
+    "ceiling_height",
+    "mortgage_payment",
+    "mortgage_rate",
+    "crm_category"
   ],
-  "group_fields": ["complex_name", "rooms", "finishing", "kind"],
-  "track_fields": ["price", "status", "finishing", "price_on_request"],
-  "positive_fields": ["price", "area_total"],
-  "required_fields": ["external_id", "price", "area_total"],
+  "group_fields": [
+    "complex_name",
+    "rooms",
+    "finishing",
+    "kind"
+  ],
+  "track_fields": [
+    "price",
+    "status",
+    "finishing",
+    "price_on_request"
+  ],
+  "positive_fields": [
+    "price",
+    "area_total"
+  ],
+  "required_fields": [
+    "external_id",
+    "price",
+    "area_total"
+  ],
   "cross_check": {
     "with_table": "apartments",
     "on_left": "complex_name",
@@ -75,9 +105,27 @@
     "agg": "median",
     "normalize_key": true,
     "min_group_size": 10,
-    "thresholds": {"ok": 10, "warn": 20},
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
     "dedup_by": "external_id",
     "filter_left": [],
-    "filter_right": {"field": "developer_name", "op": "contains", "value": "ФСК"}
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "ФСК"
+      },
+      {
+        "field": "object_type",
+        "op": "in",
+        "values": [
+          "Квартира",
+          "Апартамент",
+          "Таунхаус"
+        ]
+      }
+    ]
   }
 }

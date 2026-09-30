@@ -5,9 +5,18 @@
     "url": "https://api.redcat.ai/api/v1/estate/regulations?filter[status]=active&filter[region_id]={region_id}",
     "id_field": "id",
     "name_field": "housing_complex_name",
-    "group_fields": ["provider_name"],
-    "track_fields": ["status_name", "date_from", "date_to", "provider_name"],
-    "required_fields": ["housing_complex_id"]
+    "group_fields": [
+      "provider_name"
+    ],
+    "track_fields": [
+      "status_name",
+      "date_from",
+      "date_to",
+      "provider_name"
+    ],
+    "required_fields": [
+      "housing_complex_id"
+    ]
   },
   {
     "key": "tariffs",
@@ -15,9 +24,20 @@
     "url": "https://api.redcat.ai/api/v1/estate/regulation_tariff_cards?filter[status]=active&filter[region_id]={region_id}",
     "id_field": "id",
     "name_field": "housing_complex.name",
-    "numeric_fields": ["min_percent", "max_percent"],
-    "group_fields": ["provider.name"],
-    "track_fields": ["status_name", "min_percent", "max_percent", "payment_term", "provider.name"]
+    "numeric_fields": [
+      "min_percent",
+      "max_percent"
+    ],
+    "group_fields": [
+      "provider.name"
+    ],
+    "track_fields": [
+      "status_name",
+      "min_percent",
+      "max_percent",
+      "payment_term",
+      "provider.name"
+    ]
   },
   {
     "key": "housing_complexes",
@@ -25,29 +45,97 @@
     "url": "https://api.redcat.ai/api/v2/estate/housing_complexes?filter[country_id]={country_id}&filter[region_id]={region_id}&sort=created_at_desc&filter[active_in_admin]=true",
     "id_field": "id",
     "name_field": "name",
-    "group_fields": ["developer_name"],
-    "track_fields": ["developer_name", "deadline", "min_price_apartments_formatted", "address"],
-    "required_fields": ["name"]
+    "group_fields": [
+      "developer_name"
+    ],
+    "track_fields": [
+      "developer_name",
+      "deadline",
+      "min_price_apartments_formatted",
+      "address"
+    ],
+    "required_fields": [
+      "name"
+    ]
+  },
+  {
+    "key": "apartments_estates",
+    "title": "Корпуса ЖК (промежуточный)",
+    "url": "https://api.redcat.ai/api/v1/estate/housing_complexes/show-apartments-data",
+    "split_url_template": "https://api.redcat.ai/api/v1/estate/housing_complexes/show-apartments-data/{value}?filter[region_id]={region_id}",
+    "split_param": "",
+    "split_values_from": "housing_complexes",
+    "split_values_field": "id",
+    "split_values_name_field": "name",
+    "split_child_name_field": "",
+    "page_size": 10000,
+    "page_size_param": "",
+    "page_number_param": "",
+    "id_field": "estate_id",
+    "name_field": "dom_number",
+    "numeric_fields": [
+      "total_apartments",
+      "floor_min",
+      "floor_max"
+    ],
+    "group_fields": [
+      "housing_complex_id"
+    ],
+    "track_fields": [
+      "total_apartments"
+    ],
+    "required_fields": [
+      "estate_id",
+      "housing_complex_id"
+    ],
+    "preprocess": "extract_estates",
+    "concurrency": 4
   },
   {
     "key": "apartments",
     "title": "Квартиры и лоты",
-    "url": "https://api.redcat.ai/api/v2/estate/housing_complexes/listing_apartments?filter[country_id]={country_id}&filter[region_id]={region_id}&sort=price_asc&filter[active_in_admin]=true",
-    "split_param": "filter[developer_id]",
-    "split_values_from": "tariffs",
-    "split_values_field": "developer.id",
-    "split_values_name_field": "developer.name",
-    "split_child_name_field": "developer_name",
+    "url": "https://api.redcat.ai/api/v1/estate/apartments/fast",
+    "split_param": "filter[estate_id]",
+    "split_values_from": "apartments_estates",
+    "split_values_field": "estate_id",
+    "split_values_name_field": "estate_id",
+    "split_child_name_field": "",
     "overflow_sort": "price_desc",
     "concurrency": 4,
-    "max_records": 10000,
     "id_field": "id",
-    "name_field": "housing_complex_name",
-    "derived": {"price_per_sqm": "price / total_area"},
-    "numeric_fields": ["price", "base_price", "total_area", "price_per_sqm", "floor"],
-    "group_fields": ["housing_complex_id", "developer_name"],
-    "track_fields": ["price_formatted", "decoration_type", "floor"],
-    "positive_fields": ["price", "total_area"],
-    "required_fields": ["housing_complex_id"]
+    "name_field": "number",
+    "derived": {
+      "price_per_sqm": "price / total_area"
+    },
+    "numeric_fields": [
+      "price",
+      "base_price",
+      "total_area",
+      "price_m2",
+      "floor",
+      "kitchen_area",
+      "living_area"
+    ],
+    "group_fields": [
+      "type",
+      "estate_id",
+      "entrance_id",
+      "object_type"
+    ],
+    "track_fields": [
+      "price",
+      "base_price",
+      "floor",
+      "total_area",
+      "decoration_type"
+    ],
+    "positive_fields": [
+      "price",
+      "total_area"
+    ],
+    "required_fields": [
+      "id"
+    ],
+    "preprocess": "fast_apartments"
   }
 ]

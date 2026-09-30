@@ -739,16 +739,40 @@ async def _fetch_one_split(value, session, semaphore, spec, base_url):
     label = f"{spec.key}:{value}"
     sep = "&" if "?" in base_url else "?"
     if spec.split_url_template:
+        # Подставляем {value} и любые REDCAT_*-плейсхолдеры из окружения.
+        # Нужно, например, для show-apartments-data, которому обязателен
+        # filter[region_id]={region_id} — без него API отвечает HTTP 422.
+        import os as _os
         raw_url = spec.split_url_template.replace("{value}", str(value))
-        url = _set_query_param(
-            _set_query_param(raw_url, spec.page_size_param, spec.page_size),
-            spec.page_number_param,
-            0 if "offset" in (spec.page_number_param or "").lower() else 1)
+        for _name, _val in _os.environ.items():
+            if _name.startswith("REDCAT_"):
+                _key = _name[len("REDCAT_"):].lower()
+                raw_url = raw_url.replace("{" + _key + "}", str(_val))
+        # подстраховка на случай, если REDCAT_REGION_ID не задан в .env
+        if "{region_id}" in raw_url:
+            raw_url = raw_url.replace("{region_id}",
+                                      _os.environ.get("REDCAT_REGION_ID",
+                                                      "20003956"))
+        if "{country_id}" in raw_url:
+            raw_url = raw_url.replace("{country_id}",
+                                      _os.environ.get("REDCAT_COUNTRY_ID",
+                                                      "2017370"))
+        url = raw_url
+        if spec.page_size_param:
+            url = _set_query_param(url, spec.page_size_param, spec.page_size)
+        if spec.page_number_param:
+            url = _set_query_param(
+                url, spec.page_number_param,
+                0 if "offset" in (spec.page_number_param or "").lower() else 1)
     else:
         url = (f"{base_url}{sep}{spec.split_param}={value}"
                f"&{spec.page_size_param}={spec.page_size}"
                f"&{spec.page_number_param}=1")
     rows, page, incomplete, total, last_status = [], 1, False, None, None
+    # seen_ids — защита от зацикливания: если API игнорирует page[number]
+    # для какого-то значения и всегда возвращает одни и те же записи,
+    # без этой проверки цикл уходит в тысячи запросов.
+    seen_ids: set = set()
 
     async with semaphore:
         while url:
@@ -771,6 +795,21 @@ async def _fetch_one_split(value, session, semaphore, spec, base_url):
                 logging.warning("[%s] стр.%d: в ответе нет списка записей.",
                                 label, page)
                 break
+
+            # Проверка повторов: если страница целиком состоит из уже
+            # виденных id — фильтр игнорируется, обход значения нужно
+            # остановить. Иначе крутим одну и ту же выдачу сотни раз.
+            page_ids = {str(it.get(spec.id_field))
+                        for it in items
+                        if isinstance(it, dict) and it.get(spec.id_field) is not None}
+            if page_ids and page > 1 and page_ids <= seen_ids:
+                logging.warning(
+                    "[%s] стр.%d: все id уже встречались — API игнорирует "
+                    "пагинацию для этого значения. Прекращаю обход значения.",
+                    label, page)
+                break
+            seen_ids |= page_ids
+
             rows.extend(items)
             if total is None:
                 total = data.get("total")
@@ -821,7 +860,7 @@ async def fetch_split_async(base_url, values, token, spec):
                     suspect += 1
                 else:
                     empty_ok += 1
-            if done % 25 == 0 or done == total:
+            if done % 5 == 0 or done == total:
                 print(f"\r  📡 [{spec.key}] {done}/{total} — записей: {len(out)}",
                       end="", flush=True)
     print()
@@ -1162,7 +1201,7 @@ def collect_source(spec, session, token, params, collected):
     url = spec.resolved_url(params)
 
     # Дробление запроса по значениям поля (обход лимита окна пагинации).
-    if spec.split_param and spec.split_values_from:
+    if (spec.split_param or spec.split_url_template) and spec.split_values_from:
         parent = collected.get(spec.split_values_from)
         if not parent:
             logging.error("[%s] источник-родитель '%s' пуст — пропуск.",
@@ -1176,34 +1215,44 @@ def collect_source(spec, session, token, params, collected):
         values |= set(spec.split_values_extra or ())
         values = sorted(values, key=str)
 
-        total = probe_total(url, session, spec)
-        if total is not None:
-            print(f"  ℹ️ [{spec.key}] API заявляет всего: {total}")
+        # Если URL для каждого значения собирается из шаблона
+        # (split_url_template), то стандартные проверки неприменимы:
+        # базовый spec.url у таких источников невалиден без id в path,
+        # а split_param пустой. Пропускаем probe_total, probe_live_values
+        # и preflight_check_split, идём сразу на сбор.
+        if spec.split_url_template:
+            total = None
+            print(f"  ℹ️ [{spec.key}] используется split_url_template — "
+                  f"пробные запросы пропущены")
+        else:
+            total = probe_total(url, session, spec)
+            if total is not None:
+                print(f"  ℹ️ [{spec.key}] API заявляет всего: {total}")
 
-        live = probe_live_values(url, session, spec, parent)
-        sample = live[:3] or values[:min(5, len(values))]
-        if live:
-            print(f"  ℹ️ [{spec.key}] Проверочные значения: "
-                  f"{', '.join(str(v) for v in live[:3])}")
-        print(f"  🔎 [{spec.key}] Проверяю параметр дробления '{spec.split_param}' "
-              f"(несколько быстрых запросов)...")
-        ok, diag = asyncio.run(preflight_check_split(url, sample, token, spec))
-        if not ok:
-            print(f"  ❌ [{spec.key}] Предпроверка '{spec.split_param}' не пройдена:")
-            print(f"     {diag}")
-            if spec.max_records:
-                print(f"  ↩️ [{spec.key}] Дробление недоступно — перехожу на срез: "
-                      f"первые {spec.max_records} записей.")
-                logging.warning("[%s] дробление недоступно, собираю срез "
-                                "max_records=%s", spec.key, spec.max_records)
-                spec.collected_as_slice = True
-                return fetch_pages(url, session, spec, spec.key,
-                                   treat_as_complete=False)
-            print(f"  ⛔ Сбор источника '{spec.key}' остановлен.")
-            logging.error("[%s] preflight провален:\n%s", spec.key, diag)
-            return [], True, total
-        if diag:
-            print(f"  ✅ [{spec.key}] предпроверка пройдена — {diag}")
+            live = probe_live_values(url, session, spec, parent)
+            sample = live[:3] or values[:min(5, len(values))]
+            if live:
+                print(f"  ℹ️ [{spec.key}] Проверочные значения: "
+                      f"{', '.join(str(v) for v in live[:3])}")
+            print(f"  🔎 [{spec.key}] Проверяю параметр дробления '{spec.split_param}' "
+                  f"(несколько быстрых запросов)...")
+            ok, diag = asyncio.run(preflight_check_split(url, sample, token, spec))
+            if not ok:
+                print(f"  ❌ [{spec.key}] Предпроверка '{spec.split_param}' не пройдена:")
+                print(f"     {diag}")
+                if spec.max_records:
+                    print(f"  ↩️ [{spec.key}] Дробление недоступно — перехожу на срез: "
+                          f"первые {spec.max_records} записей.")
+                    logging.warning("[%s] дробление недоступно, собираю срез "
+                                    "max_records=%s", spec.key, spec.max_records)
+                    spec.collected_as_slice = True
+                    return fetch_pages(url, session, spec, spec.key,
+                                       treat_as_complete=False)
+                print(f"  ⛔ Сбор источника '{spec.key}' остановлен.")
+                logging.error("[%s] preflight провален:\n%s", spec.key, diag)
+                return [], True, total
+            if diag:
+                print(f"  ✅ [{spec.key}] предпроверка пройдена — {diag}")
 
         rows, inc, suspect = asyncio.run(fetch_split_async(url, values, token, spec))
 
@@ -1442,6 +1491,65 @@ def resolve_token(cli_token):
 # ──────────────────────────────────────────────────────────────
 #  MAIN
 # ──────────────────────────────────────────────────────────────
+def _enrich_apartments_with_hc(normalized):
+    """Дописывает apartments поля housing_complex_id и housing_complex_name.
+
+    /apartments/fast отдаёт estate_id (id корпуса). Зная estate_id,
+    можно найти housing_complex_id в apartments_estates, а название ЖК —
+    в housing_complexes. Оба источника уже собраны в normalized.
+    """
+    apts = normalized.get("apartments")
+    estates = normalized.get("apartments_estates") or []
+    hcs = normalized.get("housing_complexes") or []
+
+    if not apts:
+        return
+    if not estates:
+        print("  ⚠️ apartments: нет apartments_estates — "
+              "housing_complex_id и housing_complex_name не будут заполнены.")
+        return
+
+    # {estate_id: housing_complex_id}
+    est_to_hc = {}
+    for e in estates:
+        eid = e.get("estate_id")
+        hcid = e.get("housing_complex_id")
+        if eid is not None and hcid is not None:
+            est_to_hc[eid] = hcid
+            est_to_hc[str(eid)] = hcid
+
+    # {housing_complex_id: housing_complex_name}
+    hc_to_name = {}
+    for hc in hcs:
+        hcid = hc.get("id")
+        name = hc.get("name")
+        if hcid is not None:
+            hc_to_name[hcid] = name
+            hc_to_name[str(hcid)] = name
+
+    filled_id = 0
+    filled_name = 0
+    missing = 0
+    for row in apts:
+        eid = row.get("estate_id")
+        if eid is None:
+            missing += 1
+            continue
+        hcid = est_to_hc.get(eid)
+        if hcid is None:
+            missing += 1
+            continue
+        row["housing_complex_id"] = hcid
+        filled_id += 1
+        name = hc_to_name.get(hcid)
+        if name:
+            row["housing_complex_name"] = name
+            filled_name += 1
+
+    print(f"  🔗 apartments: привязано к ЖК {filled_id} из {len(apts)} записей "
+          f"(название ЖК: {filled_name}, без привязки: {missing})")
+
+
 def build_arg_parser():
     p = argparse.ArgumentParser(description="RedCat Scraper — универсальный сборщик по API")
     p.add_argument("--token", default=None, help="Токен на этот запуск (перекрывает .env)")
@@ -1608,6 +1716,10 @@ def main():
         any_incomplete |= inc
         incomplete_by_spec[spec.key] = inc
         normalized[spec.key] = src.normalize(rows, spec)
+
+    # Обогащаем apartments связью с ЖК (housing_complex_id, name),
+    # взяв её из apartments_estates + housing_complexes.
+    _enrich_apartments_with_hc(normalized)
 
     if not normalized:
         print("❌ Не собрано ни одного источника.")

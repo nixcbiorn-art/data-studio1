@@ -169,26 +169,68 @@ def _pick_developer_column(cols: set) -> str | None:
 
 def _developer_map_for_table(db, table: str, name_field: str,
                              aliases: dict, normalize_key: bool) -> dict:
-    """{нормализованный_ключ_ЖК: застройщик} из одной таблицы."""
+    """{нормализованный_ключ_ЖК: застройщик} из одной таблицы.
+
+    Сначала пробует взять developer_name прямо из таблицы. Если такого
+    поля нет (как в apartments Redcat), но есть housing_complex_id,
+    подтягивает застройщика через связь с housing_complexes.
+    """
     if not table or not name_field:
         return {}
     try:
         with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            conn.row_factory = sqlite3.Row
             cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
             if name_field not in cols:
                 return {}
             dev_col = _pick_developer_column(cols)
-            if not dev_col:
-                return {}
-            rows = conn.execute(
-                f'SELECT DISTINCT "{name_field}", "{dev_col}" FROM "{table}" '
-                f'WHERE "{name_field}" IS NOT NULL AND "{dev_col}" IS NOT NULL'
-            ).fetchall()
+            rows = []
+            if dev_col:
+                rows = conn.execute(
+                    f'SELECT DISTINCT "{name_field}" AS nm, "{dev_col}" AS dev '
+                    f'FROM "{table}" '
+                    f'WHERE "{name_field}" IS NOT NULL AND "{dev_col}" IS NOT NULL'
+                ).fetchall()
+            if not rows and "housing_complex_id" in cols:
+                hc_dev_col = None
+                hc_id_col = None
+                hc_table = None
+                for ht in ("housing_complexes", "housing_complex",
+                           "hc", "complexes"):
+                    try:
+                        hcols = {r[1] for r in conn.execute(
+                            f'PRAGMA table_info("{ht}")')}
+                    except sqlite3.Error:
+                        continue
+                    if not hcols:
+                        continue
+                    hc_dev_col = next(
+                        (c for c in ("developer_name", "developer.name",
+                                     "developer", "Застройщик")
+                         if c in hcols), None)
+                    hc_id_col = "id" if "id" in hcols else None
+                    if hc_dev_col and hc_id_col:
+                        hc_table = ht
+                        break
+                    hc_dev_col = None
+                if hc_dev_col and hc_id_col and hc_table:
+                    rows = conn.execute(
+                        f'SELECT DISTINCT t."{name_field}" AS nm, '
+                        f'h."{hc_dev_col}" AS dev '
+                        f'FROM "{table}" t '
+                        f'JOIN "{hc_table}" h ON '
+                        f'CAST(h."{hc_id_col}" AS TEXT) = '
+                        f'CAST(t."housing_complex_id" AS TEXT) '
+                        f'WHERE t."{name_field}" IS NOT NULL '
+                        f'AND h."{hc_dev_col}" IS NOT NULL'
+                    ).fetchall()
     except sqlite3.Error:
         return {}
 
     out: dict = {}
-    for nm, dev in rows:
+    for r in rows:
+        nm = r["nm"] if hasattr(r, "keys") else r[0]
+        dev = r["dev"] if hasattr(r, "keys") else r[1]
         if not dev:
             continue
         k = (webapp._normalize_key(nm, aliases) if normalize_key
@@ -915,11 +957,117 @@ def _cross_agg_table(cross_agg: dict) -> str:
     '''
 
 
-def _developer_block(st: dict) -> str:
-    """Свёрнутая секция «по застройщикам»."""
+
+# JS для фильтра по застройщику в отчёте source_stats.
+# Вынесен отдельно, потому что внутри f-string фигурные скобки
+# { } конфликтуют с плейсхолдерами Python.
+_DEV_FILTER_JS = """
+<script>
+function devFilter(sel) {
+  var card = sel.closest('.dev-card');
+  if (!card) return;
+  var name = sel.value;
+  var rows = card.querySelectorAll('details.dev-row');
+  for (var i = 0; i < rows.length; i++) {
+    var d = rows[i];
+    var rel = d.getAttribute('data-dev-rel') === '1';
+    if (!name) {
+      d.style.display = '';
+    } else if (name === '__relevant__') {
+      d.style.display = rel ? '' : 'none';
+    } else {
+      d.style.display = (d.getAttribute('data-dev') === name) ? '' : 'none';
+    }
+  }
+}
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('select[data-dev-filter]').forEach(function (s) {
+    devFilter(s);
+  });
+});
+</script>
+"""
+
+
+def _relevant_developers(st: dict, specs: dict | None = None) -> set:
+    """Застройщики, которые имеют отношение к источнику st["source"].
+
+    Логика:
+      1. Из cross_check.filter_right источника — фильтр по developer_name.
+         Если там developer_name = "ГК А101", значит «свои» — все
+         застройщики, содержащие эту подстроку.
+      2. Плюс все, у кого есть хоть один сопоставленный ЖК (ok/warn/
+         critical/insufficient) — эти застройщики точно участвуют
+         в сверке.
+    """
+    rel: set = set()
+    src_key = st.get("source")
+    if not src_key:
+        return rel
+
+    # 1) Из filter_right.
+    try:
+        if specs is None:
+            specs = webapp.load_specs()
+        spec = specs.get(src_key)
+        cc = getattr(spec, "cross_check", None) or {}
+        filters = cc.get("filter_right") or []
+        if isinstance(filters, dict):
+            filters = [filters]
+        wanted: list = []
+        for f in filters:
+            if not isinstance(f, dict):
+                continue
+            fld = str(f.get("field") or "")
+            if "developer" not in fld.lower():
+                continue
+            val = str(f.get("value") or "").strip()
+            op = str(f.get("op") or "eq").lower()
+            if val:
+                wanted.append((op, val))
+
+        if wanted:
+            for d in st.get("by_developer") or []:
+                dev = d.get("developer") or ""
+                for op, val in wanted:
+                    ok = False
+                    if op in ("eq", "="):
+                        ok = (dev.strip() == val.strip())
+                    elif op in ("contains", "starts", "ends", "like"):
+                        ok = (val.lower() in dev.lower())
+                    elif op in ("in", "notin"):
+                        vals = [x.strip() for x in val.split(",")]
+                        ok = (dev.strip() in vals)
+                    if ok:
+                        rel.add(dev)
+                        break
+    except Exception:
+        pass
+
+    # 2) Все, у кого есть сопоставленные ЖК.
+    for d in st.get("by_developer") or []:
+        matched = (int(d.get("ok") or 0)
+                   + int(d.get("warn") or 0)
+                   + int(d.get("critical") or 0)
+                   + int(d.get("insufficient") or 0))
+        if matched > 0:
+            rel.add(d.get("developer") or "")
+    rel.discard("")
+    return rel
+
+
+def _developer_block(st: dict, relevant: set | None = None) -> str:
+    """Свёрнутая секция «по застройщикам».
+
+    relevant — набор «своих» застройщиков. Если не пусто, в селекте
+    появится опция «— только относящиеся —», и она будет выбрана
+    по умолчанию.
+    """
     devs = st.get("by_developer") or []
     if not devs:
         return ""
+
+    relevant = relevant or set()
 
     metric_names = list((st.get("metrics_pairs") or {}).keys())
     n_devs = len(devs)
@@ -935,8 +1083,34 @@ def _developer_block(st: dict) -> str:
 
     head_metric_cols = "".join(f"<th>{_esc(m)} Δ%</th>" for m in metric_names)
 
+    # Порядок: сначала «свои», потом остальные.
+    def sort_key(d):
+        is_rel = 0 if (d.get("developer") in relevant) else 1
+        return (is_rel, -d["critical"], -d["warn"],
+                -(d["worst_pct"] or 0), -d["jc_count"])
+    ordered = sorted(devs, key=sort_key)
+
+    # Опции селекта — в том же порядке.
+    options_html = ['<option value="">— всех —</option>']
+    if relevant:
+        options_html.append(
+            f'<option value="__relevant__" selected>'
+            f'— только относящиеся ({len([d for d in devs if d.get("developer") in relevant])}) —'
+            f'</option>'
+        )
+    for d in ordered:
+        mark = "★ " if d.get("developer") in relevant else ""
+        options_html.append(
+            f'<option value="{_esc(d["developer"])}">'
+            f'{mark}{_esc(d["developer"])} '
+            f'(руками {d["critical"]}, вним. {d["warn"]}, '
+            f'ok {d["ok"]}, RC {d["left_only"]}, всего {d["jc_count"]})'
+            f'</option>'
+        )
+    options = "".join(options_html)
+
     details_html = []
-    for d in devs:
+    for d in ordered:
         pills = []
         if d["critical"]:
             pills.append(f'<span class="pill crit">руками {d["critical"]}</span>')
@@ -976,8 +1150,9 @@ def _developer_block(st: dict) -> str:
                 f'<td class="num">{it.get("right_rows", 0)}</td>'
                 f'{"".join(cells)}</tr>')
 
+        is_rel = "1" if d.get("developer") in relevant else "0"
         details_html.append(f'''
-        <details class="dev-row">
+        <details class="dev-row" data-dev="{_esc(d["developer"])}" data-dev-rel="{is_rel}">
           <summary>
             <b>{_esc(d["developer"])}</b>
             <span class="muted">· ЖК: {d["jc_count"]}</span>
@@ -993,6 +1168,13 @@ def _developer_block(st: dict) -> str:
           </div>
         </details>''')
 
+    rel_note = ""
+    if relevant:
+        rel_note = (f'<div class="muted" style="margin-top:6px">'
+                    f'Относящихся к этому источнику застройщиков: '
+                    f'<b>{len(relevant)}</b>. Они отмечены ★ и показаны '
+                    f'по умолчанию.</div>')
+
     return f'''
     <div class="card dev-card">
       <h3>По застройщикам
@@ -1000,15 +1182,23 @@ def _developer_block(st: dict) -> str:
           — {n_devs} застройщиков, из них с проблемами: {problem}
         </span>
       </h3>
-      <div class="muted" style="margin-bottom:10px">
+      <div class="row" style="margin:8px 0 6px">
+        <label class="inline">показать только:
+          <select data-dev-filter onchange="devFilter(this)"
+                  style="padding:3px 8px">
+            {options}
+          </select>
+        </label>
+      </div>
+      {rel_note}
+      <div class="muted" style="margin:4px 0 10px">
         Одна строка — застройщик; кликните, чтобы раскрыть список его ЖК
-        и увидеть, у каких именно расхождение. Сверху — те, у кого больше ЖК
-        «смотреть руками». Пороги Δ%: ok ≤ {DELTA_OK:g}%,
+        и увидеть, у каких именно расхождение. Пороги Δ%: ok ≤ {DELTA_OK:g}%,
         вним. ≤ {DELTA_WARN:g}%, выше — «руками».
       </div>
       <div class="dev-list">{"".join(details_html)}</div>
     </div>
-    '''
+    {_DEV_FILTER_JS}'''
 
 
 def _source_summary_pills(s: dict) -> str:
@@ -1069,7 +1259,7 @@ def _source_body(st: dict) -> str:
         _metric_block(name, detail)
         for name, detail in st["per_metric"].items())
 
-    developer_html = _developer_block(st)
+    developer_html = _developer_block(st, relevant=_relevant_developers(st))
 
     return f'''
       <div class="kpis">{kpi_html}</div>

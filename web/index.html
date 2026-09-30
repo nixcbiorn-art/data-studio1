@@ -502,6 +502,8 @@
     <section class="view" id="view-sql">
       <div class="page-head">
         <h2>SQL-консоль</h2>
+        <select id="sqlDb" onchange="App.loadSqlSchema()"
+                title="Выбор базы данных" style="min-width:260px"></select>
         <span class="hint">только SELECT — данные не изменяются</span>
         <div class="spacer"></div>
         <button class="sm" onclick="App.exportSql()">⬇ Выгрузить результат</button>

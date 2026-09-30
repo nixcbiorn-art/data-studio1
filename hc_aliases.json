@@ -1,12 +1,434 @@
-{
-  "_comment": "Соответствия названий ЖК между источниками. Ключ и значение нормализованы (см. hc_aliases.normalize).",
-  "aliases": {
-    "амбер сити": "amber city",
-    "архитектор": "архитектор москва",
-    "роттердам": "rotterdam",
-    "сидней прайм": "sydney prime",
-    "сидней сити": "sydney city",
-    "скай гарден": "sky garden",
-    "эко бунино": "экобунино"
-  }
-}
+"""
+fix_all.py — единый фикс трёх проблем
+=======================================
+1. redcat_scraper.py: отсутствует import threading
+   (патч 11 добавил threading.Lock(), но не сам импорт)
+
+2. redcat_scraper.py: preflight_check_split падает с UnboundLocalError
+   — оставшийся от слияния кусок кода обращается к unfiltered_url
+   до её определения. Функция переписывается целиком.
+
+3. .env: строки 2-7 не разбираются
+   — токен при вставке разбился на несколько строк. Склеиваем обратно
+   в одну строку REDCAT_TOKEN=.
+
+Идемпотентно: если что-то уже в порядке — пропускает.
+Делает бэкапы *.bak_fix перед правками. Откат при ошибке компиляции.
+
+Запуск:
+    python fix_all.py
+"""
+from __future__ import annotations
+
+import py_compile
+import re
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+SCRAPER = HERE / "redcat_scraper.py"
+ENV = HERE / ".env"
+
+report: list[str] = []
+
+
+def _read(p: Path) -> str:
+    return p.read_text(encoding="utf-8", errors="replace")
+
+
+def _write(p: Path, text: str) -> None:
+    p.write_text(text, encoding="utf-8", newline="")
+
+
+def _backup(p: Path, suffix: str = "bak_fix") -> Path:
+    b = p.with_name(p.name + "." + suffix)
+    shutil.copy2(p, b)
+    return b
+
+
+def _compile(p: Path) -> tuple[bool, str]:
+    try:
+        py_compile.compile(str(p), doraise=True, cfile=str(p) + ".pyc")
+        return True, ""
+    except py_compile.PyCompileError as e:
+        return False, str(e)
+    finally:
+        Path(str(p) + ".pyc").unlink(missing_ok=True)
+
+
+# ──────────────────────────────────────────────────────────────
+#  ФИКС 1 — import threading
+# ──────────────────────────────────────────────────────────────
+def fix_threading() -> None:
+    print("\n[1] import threading в redcat_scraper.py")
+    if not SCRAPER.exists():
+        report.append("❌ redcat_scraper.py не найден")
+        print("    ❌ файл не найден")
+        return
+
+    text = _read(SCRAPER)
+    if "import threading" in text:
+        print("    ℹ️  import threading уже есть — пропускаю")
+        report.append("ℹ️  import threading уже был")
+        return
+
+    if "threading." not in text:
+        print("    ℹ️  threading нигде не используется — пропускаю")
+        report.append("ℹ️  threading не нужен")
+        return
+
+    # Вставляем рядом с другими stdlib-импортами.
+    patterns = [
+        ("import sys\nimport time\n", "import sys\nimport threading\nimport time\n"),
+        ("import sys\n", "import sys\nimport threading\n"),
+        ("import time\n", "import time\nimport threading\n"),
+        ("import os\n", "import os\nimport threading\n"),
+    ]
+    new_text = None
+    for old, new in patterns:
+        if old in text:
+            new_text = text.replace(old, new, 1)
+            break
+
+    if new_text is None:
+        # Fallback: вставляем после первого блока import
+        m = re.search(r"^(from __future__.*?\n)", text, re.S | re.M)
+        if m:
+            insert_at = m.end()
+            new_text = text[:insert_at] + "import threading\n" + text[insert_at:]
+        else:
+            new_text = "import threading\n" + text
+
+    backup = _backup(SCRAPER)
+    _write(SCRAPER, new_text)
+
+    ok, err = _compile(SCRAPER)
+    if not ok:
+        print(f"    ❌ не компилируется: {err}")
+        shutil.copy2(backup, SCRAPER)
+        print("    ↩️  откатил")
+        report.append("❌ import threading: откат")
+        return
+
+    print(f"    ✅ добавлен import threading (бэкап: {backup.name})")
+    report.append("✅ import threading добавлен")
+
+
+# ──────────────────────────────────────────────────────────────
+#  ФИКС 2 — preflight_check_split
+# ──────────────────────────────────────────────────────────────
+NEW_PREFLIGHT = '''def _total_of(data, spec):
+    """Извлекает total из unified-ответа _fetch_json.
+
+    Unified: {"items": [...], "total": int | None, "raw": ...}.
+    Если пришёл сырой JSON — читаем через find_total.
+    """
+    if not isinstance(data, dict):
+        return None
+    total = data.get("total")
+    if isinstance(total, int) and not isinstance(total, bool):
+        return total
+    raw = data.get("raw")
+    if raw is not None:
+        return find_total(raw, spec)
+    return None
+
+
+async def preflight_check_split(base_url, sample_values, token, spec):
+    """Проверка параметра дробления на нескольких значениях.
+
+    До полного обхода: если фильтр игнорируется или не работает, сбор
+    останавливается с объяснением, а не собирает одно и то же много раз.
+    """
+    if not sample_values:
+        return True, None
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+    sep = "&" if "?" in base_url else "?"
+    results = []
+
+    async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+        # 1. Запрос без фильтра — узнать общее число записей в регионе.
+        unfiltered_url = (f"{base_url}{sep}{spec.page_size_param}=1"
+                          f"&{spec.page_number_param}=1")
+        base_data, _, _ = await _fetch_json(
+            unfiltered_url, session, f"preflight:{spec.key}", 0, spec=spec)
+        unfiltered_total = _total_of(base_data, spec)
+
+        # 2. Запросы с разными значениями фильтра.
+        failed_in_row = 0
+        for value in sample_values:
+            url = (f"{base_url}{sep}{spec.split_param}={value}"
+                   f"&{spec.page_size_param}={spec.page_size}"
+                   f"&{spec.page_number_param}=1")
+            data, status, body = await _fetch_json(
+                url, session, f"preflight:{spec.key}", 1,
+                max_attempts=1, spec=spec)
+            items = data.get("items") if isinstance(data, dict) else None
+            results.append({
+                "value": value,
+                "ok": data is not None,
+                "status": status,
+                "body": body,
+                "rows": len(items) if isinstance(items, list) else None,
+                "total": _total_of(data, spec),
+            })
+            failed_in_row = 0 if data is not None else failed_in_row + 1
+            if failed_in_row >= 2:
+                break
+
+    responded = [r for r in results if r["ok"]]
+    if not responded:
+        lines = [f"Проверка на {len(results)} значениях провалилась целиком:"]
+        for r in results:
+            lines.append(f"    • {spec.split_param}={r['value']} → HTTP {r['status']}"
+                         + (f": {r['body']}" if r["body"] else " (без тела ответа)"))
+        return False, "\\n".join(lines)
+
+    if unfiltered_total:
+        ignored = [r for r in responded
+                   if r["total"] is not None and r["total"] == unfiltered_total]
+        if len(ignored) == len(responded):
+            return False, (
+                f"Фильтр «{spec.split_param}» не влияет на выдачу: и без него, и с\\n"
+                f"    любым из {len(responded)} проверенных значений API отдаёт одни и те же\\n"
+                f"    {unfiltered_total} записей.")
+
+    empty = [r for r in responded if not r["rows"]]
+    if len(empty) == len(responded):
+        return False, (
+            f"Все {len(responded)} проверенных значений вернули 0 записей без ошибок.")
+
+    with_data = len(responded) - len(empty)
+    return True, (f"фильтр работает: из {len(responded)} проб с данными {with_data}"
+                  + (f", всего по региону {unfiltered_total}" if unfiltered_total else ""))
+
+
+'''
+
+
+def fix_preflight() -> None:
+    print("\n[2] preflight_check_split")
+    if not SCRAPER.exists():
+        print("    ❌ файл не найден")
+        return
+
+    text = _read(SCRAPER)
+
+    # Уже пофикшено?
+    if "_total_of(data, spec)" in text and "def _total_of(" in text:
+        print("    ℹ️  уже исправлено (есть _total_of) — пропускаю")
+        report.append("ℹ️  preflight уже был исправлен")
+        return
+
+    # Ищем границы функции.
+    start_marker = "async def preflight_check_split(base_url, sample_values, token, spec):"
+    end_marker = "async def _fetch_one_split("
+
+    if start_marker not in text:
+        print(f"    ❌ не найдено начало функции")
+        report.append("❌ preflight: нет начала функции")
+        return
+    if end_marker not in text:
+        print(f"    ❌ не найдено начало _fetch_one_split")
+        report.append("❌ preflight: нет конца блока")
+        return
+
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    if end <= start:
+        print("    ❌ не удалось определить границы")
+        report.append("❌ preflight: границы не определены")
+        return
+
+    backup = _backup(SCRAPER)
+    new_text = text[:start] + NEW_PREFLIGHT + text[end:]
+    _write(SCRAPER, new_text)
+
+    ok, err = _compile(SCRAPER)
+    if not ok:
+        print(f"    ❌ не компилируется: {err}")
+        shutil.copy2(backup, SCRAPER)
+        print("    ↩️  откатил")
+        report.append("❌ preflight: откат")
+        return
+
+    print(f"    ✅ preflight_check_split переписан (бэкап: {backup.name})")
+    print(f"    ✅ добавлен хелпер _total_of")
+    report.append("✅ preflight_check_split исправлен")
+
+
+# ──────────────────────────────────────────────────────────────
+#  ФИКС 3 — .env
+# ──────────────────────────────────────────────────────────────
+def fix_env() -> None:
+    print("\n[3] .env")
+    if not ENV.exists():
+        print("    ℹ️  .env нет — пропускаю")
+        report.append("ℹ️  .env отсутствует")
+        return
+
+    lines = _read(ENV).splitlines()
+    if not lines:
+        print("    ℹ️  .env пуст")
+        return
+
+    # Ищем REDCAT_TOKEN. Он может быть:
+    #   REDCAT_TOKEN=eyJ...       — нормальная строка
+    #   REDCAT_TOKEN=eyJ...       — первая часть
+    #   eyJhbGci...               — обрывки следующих строк (без '=')
+    #   несколько строк, каждая без '=' — тоже обрывки
+    token_parts: list[str] = []
+    out_lines: list[str] = []
+    token_line_idx = None
+
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.startswith("REDCAT_TOKEN="):
+            token_line_idx = i
+            token_parts.append(s.split("=", 1)[1].strip())
+            out_lines.append(None)  # placeholder
+            continue
+        out_lines.append(line)
+
+    if token_line_idx is None:
+        print("    ℹ️  REDCAT_TOKEN не найден — пропускаю")
+        report.append("ℹ️  REDCAT_TOKEN не найден в .env")
+        return
+
+    # Собираем «мусорные» строки после REDCAT_TOKEN, которые идут без '='
+    # и похожи на обрывки токена (только base64-подобные символы).
+    token_continuation_re = re.compile(r"^[A-Za-z0-9_\-\.]{8,}$")
+    to_merge_idx: list[int] = []
+    for i in range(token_line_idx + 1, len(lines)):
+        s = lines[i].strip()
+        if not s:
+            break
+        if "=" in s:
+            break
+        if token_continuation_re.match(s):
+            token_parts.append(s)
+            to_merge_idx.append(i)
+        else:
+            break
+
+    if not to_merge_idx:
+        # .env уже в порядке с точки зрения структуры
+        parts = [p for p in token_parts if p]
+        merged_check = "".join(parts)
+        if merged_check.count(".") == 2:
+            print("    ℹ️  .env структурно в порядке — правки не нужны")
+            report.append("ℹ️  .env не требует правок")
+        else:
+            print(f"    ⚠️  токен не похож на JWT "
+                  f"(частей через точку: {merged_check.count('.')})")
+            report.append("⚠️  .env: токен не похож на JWT")
+        return
+
+    # Склеиваем токен
+    merged = "".join(p.strip().strip('"').strip("'") for p in token_parts)
+    merged = re.sub(r"\s+", "", merged)
+    if merged.lower().startswith("bearer"):
+        merged = merged[6:].strip()
+
+    # Строим новый .env без поглощённых строк
+    skip = set(to_merge_idx)
+    final: list[str] = []
+    for i, line in enumerate(lines):
+        if i in skip:
+            continue
+        if i == token_line_idx:
+            final.append(f"REDCAT_TOKEN={merged}")
+        else:
+            final.append(line)
+
+    backup = _backup(ENV)
+    _write(ENV, "\n".join(final) + ("\n" if final else ""))
+
+    parts = merged.count(".")
+    if parts == 2:
+        print(f"    ✅ токен склеен в одну строку "
+              f"({len(merged)} символов, бэкап: {backup.name})")
+        report.append("✅ .env: токен склеен")
+    else:
+        print(f"    ⚠️  строки склеены, но токен не похож на JWT "
+              f"(частей через точку: {parts})")
+        print(f"        вставьте заново: python set_token.py")
+        report.append("⚠️  .env: токен склеен, но не похож на JWT")
+
+
+# ──────────────────────────────────────────────────────────────
+#  ФИНАЛЬНАЯ ПРОВЕРКА
+# ──────────────────────────────────────────────────────────────
+def verify() -> int:
+    print("\n[4] Проверка импорта")
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+
+    import importlib
+    try:
+        import redcat_scraper as rs
+        importlib.reload(rs)
+        print("    ✅ redcat_scraper импортируется")
+    except Exception as e:  # noqa: BLE001
+        print(f"    ❌ redcat_scraper не импортируется: "
+              f"{type(e).__name__}: {e}")
+        report.append(f"❌ импорт redcat_scraper: {e}")
+        return 1
+
+    failures = []
+    for name in ("_RATE_LIMITERS", "_CIRCUIT_BREAKERS",
+                 "preflight_check_split", "_total_of"):
+        if not hasattr(rs, name):
+            failures.append(name)
+    if failures:
+        print(f"    ❌ отсутствуют: {', '.join(failures)}")
+        report.append(f"❌ отсутствуют: {', '.join(failures)}")
+        return 1
+
+    print("    ✅ rate limiter, circuit breaker, preflight, _total_of — на месте")
+
+    # Простая проверка _total_of
+    import sources as src
+    s = src.SourceSpec(key="t", url="x", total_path=("meta", "total"))
+    if rs._total_of({"items": [1], "total": 999,
+                     "raw": {"meta": {"total": 1}}}, s) == 999:
+        print("    ✅ _total_of читает unified")
+    else:
+        print("    ⚠️  _total_of вернул не то на unified")
+    if rs._total_of({"meta": {"total": 123}}, s) == 123:
+        print("    ✅ _total_of читает raw")
+    else:
+        print("    ⚠️  _total_of вернул не то на raw")
+
+    return 0
+
+
+# ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    print("=" * 64)
+    print("  fix_all.py — ремонт после патчей 1–12")
+    print("=" * 64)
+
+    fix_threading()
+    fix_preflight()
+    fix_env()
+
+    code = verify()
+
+    print("\n" + "=" * 64)
+    print("  ИТОГ")
+    print("=" * 64)
+    for line in report:
+        print(f"  {line}")
+
+    if code == 0:
+        print("\n  ✅ Проект готов к запуску:")
+        print("     python redcat_scraper.py --only apartments")
+    else:
+        print("\n  ⚠️  Есть проблемы — см. выше")
+
+    print("=" * 64)
+    sys.exit(code)

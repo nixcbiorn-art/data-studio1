@@ -2242,32 +2242,57 @@ const App = {
 
 
   async initSql() {
-    const tables = App.meta?.tables || [];
+    await App.loadSqlDatabases();
+    App.loadSqlSchema();
+  },
+
+  async loadSqlDatabases() {
+    try {
+      const r = await api.get('sql_databases');
+      const sel = $('sqlDb');
+      const keep = sel.value;
+      sel.innerHTML = '';
+      (r.items || []).forEach((db) => {
+        const mb = (db.size / 1024 / 1024).toFixed(1);
+        sel.appendChild(el('option', { value: db.id },
+          `${db.title} · ${mb} МБ`));
+      });
+      if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    } catch (e) {
+      toast('Не удалось получить список баз: ' + e.message, true);
+    }
+  },
+
+  async loadSqlSchema() {
+    const dbId = $('sqlDb').value || 'redcat';
     const box = $('sqlSchema');
+    box.replaceChildren(el('div', { class: 'muted tiny' }, 'загружаю схему…'));
+    let items = [];
+    try {
+      const r = await api.get('sql_schema', { db: dbId });
+      items = r.items || [];
+    } catch (e) {
+      box.replaceChildren(el('div', { class: 'empty tiny' }, e.message));
+      return;
+    }
     box.replaceChildren();
-    for (const t of tables) {
+    if (!items.length) {
+      box.appendChild(el('div', { class: 'muted tiny' }, 'в базе нет таблиц'));
+      return;
+    }
+    for (const t of items) {
       const details = el('details', {}, el('summary', {
         style: 'cursor:pointer;padding:3px 0',
-      }, `${t.name} (${NUM.format(t.rows)})${t.external ? ' 📦' : ''}`));
-      details.addEventListener('toggle', async () => {
-        if (!details.open || details.dataset.loaded) return;
-        details.dataset.loaded = '1';
-        const info = await api.get('columns', { table: t.name });
-        info.columns.forEach((c) => details.appendChild(el('div', {
-          class: 'muted mono', style: 'padding-left:12px;cursor:pointer',
-          title: c.label || c.name,
-          onclick: () => { $('sqlInput').value += c.name; },
-        }, `${c.name} ${c.type || ''}`)));
-      });
+      }, `${t.name} (${NUM.format(t.rows)})`));
+      (t.schema || []).forEach((c) => details.appendChild(el('div', {
+        class: 'muted mono', style: 'padding-left:12px;cursor:pointer',
+        title: c.type || '',
+        onclick: () => { $('sqlInput').value += c.name; },
+      }, `${c.name} ${c.type || ''}`)));
       box.appendChild(details);
     }
-    const main = tables.find((t) => t.name === 'apartments') || tables[0];
-    if (!main) return;
-    const samples = [
-      ['Сколько записей по каждой таблице', tables.map((t) =>
-        `SELECT '${t.name}' AS t, COUNT(*) AS n FROM "${t.name}"`).join('\nUNION ALL\n')],
-      ['Топ значений колонки', `SELECT *, COUNT(*) AS n FROM "${main.name}" GROUP BY 1 ORDER BY n DESC LIMIT 20`],
-    ];
+    // Примеры запросов — под выбранную базу.
+    const samples = App.sqlSamplesFor(dbId, items);
     $('sqlSamples').replaceChildren(...samples.map(([label, sql]) =>
       el('div', {
         style: 'padding:4px 0;cursor:pointer;color:var(--accent)',
@@ -2275,9 +2300,74 @@ const App = {
       }, label)));
   },
 
+  sqlSamplesFor(dbId, items) {
+    const names = (items || []).map((t) => t.name);
+    const byDb = {
+      redcat: () => {
+        const main = names.includes('apartments') ? 'apartments' : names[0];
+        return [
+          ['Сколько записей по каждой таблице',
+           names.slice(0, 8).map((n) =>
+             `SELECT '${n}' AS t, COUNT(*) AS n FROM "${n}"`).join('\nUNION ALL\n')],
+          ['Топ значений колонки',
+           `SELECT *, COUNT(*) AS n FROM "${main}" GROUP BY 1 ORDER BY n DESC LIMIT 20`],
+        ];
+      },
+      external: () => [
+        ['Все таблицы и размер',
+         names.map((n) =>
+           `SELECT '${n}' AS t, COUNT(*) AS n FROM "${n}"`).join('\nUNION ALL\n')],
+      ],
+      studio: () => [
+        ['Активные правки по таблицам',
+         `SELECT source, COUNT(*) AS n FROM edits WHERE active=1 GROUP BY source ORDER BY n DESC`],
+        ['Все правки за последние 50',
+         `SELECT id, source, record_id, field, old_value, new_value, ts
+          FROM edits WHERE active=1 ORDER BY id DESC LIMIT 50`],
+        ['Заметки',
+         `SELECT source, record_id, substr(note, 1, 80) AS note, ts FROM notes ORDER BY ts DESC LIMIT 50`],
+        ['Теги',
+         `SELECT tag, COUNT(*) AS n FROM tags GROUP BY tag ORDER BY n DESC`],
+        ['Обращения к API за последние 100',
+         `SELECT ts, method, status, ms, substr(url, 1, 80) AS url FROM api_audit ORDER BY id DESC LIMIT 100`],
+      ],
+      stats: () => [
+        ['Все запуски: объём и полнота',
+         `SELECT run_id, started_at, apartments_count, hc_count,
+                 region_total_reported, round(coverage_pct, 1) AS cov,
+                 CASE
+                   WHEN apartments_count >= 40000 THEN 'полный'
+                   WHEN apartments_count < 10500 THEN 'срез 10к'
+                   ELSE 'частичный'
+                 END AS verdict
+          FROM runs ORDER BY run_id`],
+        ['Сводка по запускам',
+         `SELECT COUNT(*) AS всего,
+                 SUM(CASE WHEN apartments_count >= 40000 THEN 1 ELSE 0 END) AS полных,
+                 SUM(CASE WHEN apartments_count <  10500 THEN 1 ELSE 0 END) AS срезов_10к,
+                 MIN(started_at) AS первый,
+                 MAX(started_at) AS последний
+          FROM runs`],
+        ['Аномалии по важности',
+         `SELECT severity, COUNT(*) AS n FROM anomalies GROUP BY severity ORDER BY n DESC`],
+        ['Последние 50 аномалий',
+         `SELECT run_id, source, severity, kind, substr(message, 1, 100) AS msg
+          FROM anomalies ORDER BY id DESC LIMIT 50`],
+        ['История одной записи (пример)',
+         `SELECT run_id, ts, field, value FROM record_history
+          WHERE source='apartments'
+          ORDER BY run_id DESC LIMIT 100`],
+      ],
+    };
+    return (byDb[dbId] || (() => []))();
+  },
+
   async runSql() {
     try {
-      const r = await api.get('sql', { sql: $('sqlInput').value });
+      const r = await api.get('sql', {
+        sql: $('sqlInput').value,
+        db: $('sqlDb').value || 'redcat',
+      });
       $('sqlResult').replaceChildren(el('div', { class: 'card' },
         el('h3', {}, `${r.rows.length} строк${r.truncated ? ` (показаны первые ${r.limit})` : ''}`),
         r.rows.length ? renderTable(r.columns, r.rows) : el('div', { class: 'empty' }, 'Пусто.')));
@@ -2289,7 +2379,12 @@ const App = {
   },
 
   exportSql() {
-    window.location = `/api/export?what=sql&format=csv&sql=${encodeURIComponent($('sqlInput').value)}`;
+    const qs = new URLSearchParams({
+      what: 'sql', format: 'csv',
+      sql: $('sqlInput').value,
+      db: $('sqlDb').value || 'redcat',
+    });
+    window.location = `/api/export?${qs}`;
   },
 
   async loadApiLog() {

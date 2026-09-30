@@ -6,9 +6,15 @@
   "page_size": 100,
   "page_size_param": "limit",
   "page_number_param": "offset",
-  "next_link_path": ["next"],
-  "data_path": ["results"],
-  "total_path": ["count"],
+  "next_link_path": [
+    "next"
+  ],
+  "data_path": [
+    "results"
+  ],
+  "total_path": [
+    "count"
+  ],
   "split_param": "project",
   "split_values_from": "a101_complexes",
   "split_values_field": "slug",
@@ -16,7 +22,7 @@
   "split_values_name_field": "title",
   "concurrency": 3,
   "flatten_depth": 2,
-  "id_field": "id",
+  "id_field": "external_id",
   "name_field": "number",
   "mapping": {
     "external_id": "id",
@@ -57,19 +63,45 @@
     "view_apartment": "view_apartment"
   },
   "numeric_fields": [
-    "area", "ceiling_height", "price", "actual_price", "ppm", "actual_ppm",
-    "base_price", "special_price", "sale_value", "mortgage_min_payment",
-    "room", "floor", "max_floor", "status"
+    "area",
+    "ceiling_height",
+    "price",
+    "actual_price",
+    "ppm",
+    "actual_ppm",
+    "base_price",
+    "special_price",
+    "sale_value",
+    "mortgage_min_payment",
+    "room",
+    "floor",
+    "max_floor",
+    "status"
   ],
-  "group_fields": ["project_name", "room_name", "realty_class"],
-  "track_fields": ["price", "actual_price", "status"],
-  "positive_fields": ["price", "area", "actual_price"],
-  "required_fields": ["external_id", "project_name", "area", "price"],
-
+  "group_fields": [
+    "project_name",
+    "room_name",
+    "realty_class"
+  ],
+  "track_fields": [
+    "price",
+    "actual_price",
+    "status"
+  ],
+  "positive_fields": [
+    "price",
+    "area",
+    "actual_price"
+  ],
+  "required_fields": [
+    "external_id",
+    "project_name",
+    "area",
+    "price"
+  ],
   "derived": {
     "sale_price": "special_price or actual_price or price"
   },
-
   "cross_check": {
     "with_table": "apartments",
     "on_left": "project_name",
@@ -81,8 +113,21 @@
     "agg": "median",
     "normalize_key": true,
     "min_group_size": 10,
-    "thresholds": {"ok": 10, "warn": 20},
-    "filter_right": {"field": "developer_name", "op": "eq", "value": "ГК А101"}
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "eq",
+        "value": "ГК А101"
+      },
+      {
+        "field": "object_type",
+        "op": "eq",
+        "value": "Квартира"
+      }
+    ]
   }
 }
-
