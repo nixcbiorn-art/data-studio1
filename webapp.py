@@ -910,9 +910,22 @@ def _cross_check_report(source_key: str) -> dict:
             "metrics": per_metric,
             "worst_pct": worst,
         }
-        if worst >= t_warn:
+        # Асимметричное правило (для А101): если в спеке стоит
+        # asymmetric = "source_higher", то положительное отклонение
+        # (источник > Redcat) — ожидаемое, у нас есть вторая скидка,
+        # которой нет в фиде. Считаем только отрицательные отклонения.
+        _asym_filter = (cc.get("asymmetric") == "source_higher")
+        _effective_worst = worst
+        if _asym_filter:
+            # Берём модуль только отрицательных отклонений.
+            _neg = [abs(m.get("diff_pct") or 0)
+                    for m in per_metric.values()
+                    if (m.get("diff_pct") or 0) < 0]
+            _effective_worst = max(_neg) if _neg else 0.0
+
+        if _effective_worst >= t_warn:
             items_by_class["critical"].append(item)
-        elif worst >= t_ok:
+        elif _effective_worst >= t_ok:
             items_by_class["warn"].append(item)
         else:
             items_by_class["ok"].append(item)
