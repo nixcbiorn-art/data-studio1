@@ -87,11 +87,30 @@ class Report:
                     print(f"      {str(i) + '.' if j == 0 else '  '} {part}")
 
 
-def _get(session, url, timeout=25):
-    """GET с замером времени. Возвращает (данные, статус, мс, ошибка)."""
+def _get_raw(session, url, timeout=25, headers=None):
+    """GET без парсинга JSON. Возвращает (bytes, статус, мс, ошибка)."""
     started = time.perf_counter()
+    request_headers = dict(headers or {}) or None
     try:
-        resp = session.get(url, timeout=timeout)
+        resp = session.get(url, headers=request_headers, timeout=timeout)
+    except Exception as e:
+        return None, None, 0, f"{type(e).__name__}: {e}"
+    ms = round((time.perf_counter() - started) * 1000)
+    if resp.status_code >= 400:
+        return None, resp.status_code, ms, resp.text[:400]
+    return resp.content, resp.status_code, ms, None
+
+
+def _get(session, url, timeout=25, headers=None):
+    """GET с замером времени. Возвращает (данные, статус, мс, ошибка).
+
+    headers — заголовки запроса из spec (User-Agent, Referer и т.п.).
+    Нужны для API, блокирующих дефолтный User-Agent requests.
+    """
+    started = time.perf_counter()
+    request_headers = dict(headers or {}) or None
+    try:
+        resp = session.get(url, headers=request_headers, timeout=timeout)
     except Exception as e:  # noqa: BLE001 — показываем пользователю как есть
         return None, None, 0, f"{type(e).__name__}: {e}"
     ms = round((time.perf_counter() - started) * 1000)
@@ -137,12 +156,61 @@ def diagnose_source(spec, session, params, data_db=None, find_total=None,
         rep.tip("Добавьте недостающие значения в .env (REDCAT_REGION_ID и т.п.).")
         return rep
 
+    # Для split-источников пробуем шаблон с подставленным value.
+    # value берём из родителя (split_values_from) если он уже в params,
+    # иначе — любое числовое значение (для валидации формы URL).
+    _split_template = getattr(spec, "split_url_template", "") or ""
+    if _split_template:
+        _probe_value = None
+        try:
+            # Пытаемся взять id из родителя, если он собран в этой сессии.
+            _parent_key = getattr(spec, "split_values_from", "") or ""
+            if _parent_key and collected_parents:
+                _parent_rows = collected_parents.get(_parent_key) or []
+                if _parent_rows:
+                    _pf = getattr(spec, "split_values_field", "id") or "id"
+                    for _r in _parent_rows:
+                        _v = _r.get(_pf)
+                        if _v is not None:
+                            _probe_value = _v
+                            break
+        except Exception:
+            pass
+        if _probe_value is None:
+            _probe_value = "1"  # фиктивное, только для валидации формы
+        base_url = _split_template.replace("{value}", str(_probe_value))
+        rep.add(INFO, f"split_url_template: пробуем с value={_probe_value!r}")
+
     sep = "&" if "?" in base_url else "?"
-    page1_url = (f"{base_url}{sep}{spec.page_size_param}={spec.page_size}"
-                 f"&{spec.page_number_param}=1")
+    # Некоторые split-источники отдают 1 страницу целиком и не поддерживают
+    # page[size]/page[number] — тогда шаблон уже содержит всё, что нужно.
+    _has_page_params = bool(getattr(spec, "page_size_param", "")
+                             or getattr(spec, "page_number_param", ""))
+    if _has_page_params:
+        page1_url = (f"{base_url}{sep}{spec.page_size_param}={spec.page_size}"
+                     f"&{spec.page_number_param}=1")
+    else:
+        page1_url = base_url
 
     # ── 2. Запрос ──
-    data, status, ms, error = _get(session, page1_url)
+    # Для XML-источников _get вернёт None (не JSON) — парсим сами.
+    _is_xml = getattr(spec, "format", "json") == "xml"
+    if _is_xml:
+        _xml_data, _xml_status, _xml_ms, _xml_err = _get_raw(
+            session, page1_url, headers=getattr(spec, "headers", None))
+        if _xml_data is None:
+            rep.add(BAD, f"Запрос не прошёл (HTTP {_xml_status})", _xml_err)
+            return rep
+        try:
+            _parsed = src.parse_payload(_xml_data, spec)
+            data = _parsed
+            status, ms = _xml_status, _xml_ms
+        except Exception as _e:
+            rep.add(BAD, "XML не разобрался", str(_e))
+            return rep
+    else:
+        data, status, ms, error = _get(session, page1_url,
+                                        headers=getattr(spec, "headers", None))
     if data is None:
         rep.add(BAD, f"Запрос не прошёл (HTTP {status})", error)
         if status in (401, 403):
@@ -179,7 +247,15 @@ def diagnose_source(spec, session, params, data_db=None, find_total=None,
 
     # ── 4. Общее число ──
     total = find_total(data, spec) if find_total else src.dig(data, spec.total_path)
-    if total is None:
+    _strategy = getattr(spec, "pagination_strategy", "") or ""
+    _no_pagination = _strategy in ("stop", "cursor") or (
+        not getattr(spec, "page_number_param", ""))
+    _is_split = bool(getattr(spec, "split_param", "")
+                     or getattr(spec, "split_url_template", ""))
+    _is_browser = getattr(spec, "fetch_mode", "http") == "browser"
+    if total is None and (_no_pagination or _is_split or _is_browser):
+        rep.add(INFO, "Источник без пагинации/split/браузер — total не требуется")
+    elif total is None:
         rep.add(BAD, "В ответе нет общего числа записей",
                 f"Искали по {list(spec.total_path)} и по типовым путям.")
         rep.tip("Без общего числа полноту сбора не с чем сверять — потеря половины\n"
@@ -221,7 +297,8 @@ def diagnose_source(spec, session, params, data_db=None, find_total=None,
     if total and total > len(items):
         second_url = (f"{base_url}{sep}{spec.page_size_param}={spec.page_size}"
                       f"&{spec.page_number_param}=2")
-        data2, status2, ms2, err2 = _get(session, second_url)
+        data2, status2, ms2, err2 = _get(session, second_url,
+                                            headers=getattr(spec, "headers", None))
         if data2 is None:
             rep.add(BAD, f"Вторая страница не открылась (HTTP {status2})", err2)
             rep.tip("Если тело ответа упоминает result window — API не отдаёт\n"
@@ -233,8 +310,14 @@ def diagnose_source(spec, session, params, data_db=None, find_total=None,
             ids2 = {str(r.get(spec.id_field)) for r in items2
                     if isinstance(r, dict)}
             if ids1 and ids2 and ids2 <= ids1:
-                rep.add(BAD, "Вторая страница повторяет первую",
-                        f"API игнорирует «{spec.page_number_param}».")
+                _st = getattr(spec, "pagination_strategy", "") or ""
+                _scalar = _st in ("offset", "cursor")
+                if _scalar:
+                    rep.add(INFO, "Пагинация offset/cursor — сравнение "
+                                  "по номерам страниц неприменимо")
+                else:
+                    rep.add(BAD, "Вторая страница повторяет первую",
+                            f"API игнорирует «{spec.page_number_param}».")
                 rep.tip("Уточните в документации, как у этого API устроена\n"
                         "пагинация: возможно, нужны limit/offset или курсор.")
             elif not items2:
@@ -357,7 +440,8 @@ def _diagnose_split(rep, spec, session, base_url, sep, total, collected_parents)
     for value in parent_values:
         url = (f"{base_url}{sep}{spec.split_param}={urllib.parse.quote(str(value))}"
                f"&{spec.page_size_param}=1&{spec.page_number_param}=1")
-        data, status, ms, error = _get(session, url)
+        data, status, ms, error = _get(session, url,
+                                         headers=getattr(spec, "headers", None))
         if data is None:
             results.append({"value": value, "status": status, "error": error,
                             "total": None, "rows": None})

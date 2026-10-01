@@ -136,12 +136,17 @@ class CircuitBreaker:
     """Отключает источник при серии ошибок.
 
     Состояния:
-      closed   — работаем нормально;
-      open     — отключено до open_until, запросы не идут;
-      half_open — cooldown истёк, пробуем один запрос; успех → closed,
-                  ошибка → снова open на cooldown.
+      closed      — работаем нормально;
+      open        — отключено до open_until, запросы не идут;
+      half_open   — cooldown истёк, ровно ОДИН запрос получает
+                    разрешение попробовать. Остальные ждут, пока
+                    этот пробный не завершится успехом (closed) или
+                    ошибкой (снова open на полный cooldown).
 
-    Счётчик consecutive_failures сбрасывается при первом успехе.
+    Раньше в half-open пускались все параллельные запросы разом:
+    при concurrency=8 восемь потоков одновременно шли проверять
+    источник, каждая ошибка инкрементировала счётчик, но настоящего
+    «одного пробного запроса» не было. Теперь — есть.
     """
 
     def __init__(self, failures: int = 8, cooldown_sec: int = 300):
@@ -152,16 +157,26 @@ class CircuitBreaker:
         self.last_reason = ""
         self.total_opens = 0
         self.last_open_at = None
+        # Признак: в half-open уже есть активная проверка.
+        self._half_open_probe_taken = False
         self.lock = threading.Lock()
 
     def is_open(self) -> bool:
+        """True — запрос делать нельзя.
+
+        В half-open возвращает False ровно один раз: первый
+        вызвавший получает право на пробный запрос. Все остальные,
+        пока пробный не завершён, продолжают получать True.
+        """
         with self.lock:
             if self.open_until == 0.0:
                 return False
-            if time.monotonic() < self.open_until:
+            now = time.monotonic()
+            if now < self.open_until:
                 return True
-            # cooldown истёк — half-open: пускаем один запрос.
-            # Если он упадёт — record_failure снова откроет breaker.
+            if self._half_open_probe_taken:
+                return True
+            self._half_open_probe_taken = True
             return False
 
     def state(self) -> dict:
@@ -182,33 +197,59 @@ class CircuitBreaker:
                 "failures_limit": self.failures_limit,
                 "cooldown_sec": self.cooldown_sec,
                 "open_remaining_sec": remaining,
+                "half_open_probe_taken": self._half_open_probe_taken,
                 "total_opens": self.total_opens,
                 "last_reason": self.last_reason,
                 "last_open_at": self.last_open_at,
             }
 
     def record_success(self):
+        """Успех закрывает breaker и снимает метку half-open."""
         with self.lock:
             self.consecutive_failures = 0
             self.open_until = 0.0
+            self._half_open_probe_taken = False
 
     def record_failure(self, reason: str = ""):
+        """Ошибка инкрементирует счётчик.
+
+        Если ошибка пришла от half-open пробного запроса — breaker
+        сразу возвращается в open на полный cooldown, не дожидаясь,
+        пока наберётся failures_limit. Иначе один неудачный пробный
+        считался бы «одной из восьми ошибок» и circuit не открылся бы
+        заново.
+        """
         with self.lock:
             self.consecutive_failures += 1
             self.last_reason = reason or "unknown"
+            was_probe = (self.open_until > 0
+                         and self._half_open_probe_taken
+                         and time.monotonic() >= self.open_until)
+            if was_probe:
+                # Пробный не прошёл — сразу снова open.
+                self.open_until = time.monotonic() + self.cooldown_sec
+                self.total_opens += 1
+                self.last_open_at = datetime.now().isoformat(
+                    timespec="seconds")
+                self._half_open_probe_taken = False
+                return
             if self.consecutive_failures >= self.failures_limit:
                 self.open_until = time.monotonic() + self.cooldown_sec
                 self.total_opens += 1
-                self.last_open_at = datetime.now().isoformat(timespec="seconds")
+                self.last_open_at = datetime.now().isoformat(
+                    timespec="seconds")
+                self._half_open_probe_taken = False
 
     def open_now(self, reason: str, cooldown_sec: int | None = None):
         """Принудительно открыть (например, при явном HTTP 429)."""
         with self.lock:
             self.open_until = time.monotonic() + (
-                cooldown_sec if cooldown_sec is not None else self.cooldown_sec)
+                cooldown_sec if cooldown_sec is not None
+                else self.cooldown_sec)
             self.total_opens += 1
             self.last_reason = reason or "forced"
             self.last_open_at = datetime.now().isoformat(timespec="seconds")
+            self._half_open_probe_taken = False
 
 
 # ──────────────────────────────────────────────────────────────

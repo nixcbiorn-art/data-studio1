@@ -23,6 +23,24 @@ export_problem_jc.py — проблемные ЖК.
   reports/problem_jc_<ts>_discounts.csv — отсеянные как скидочные
 """
 from __future__ import annotations
+try:
+    from thresholds import rows_threshold as _rows_threshold
+except ImportError:
+    def _rows_threshold(a, b):
+        return 10
+NOISE_PCT = 2.0   # |Δ медианы| ниже — считаем шумом
+
+# Шумовые пороги: ниже этих значений — не проблема.
+ROWS_NOISE_ABS = 10      # меньше 3 лотов разницы — шум
+ROWS_NOISE_PCT = 3.0    # меньше 1.5% разницы — шум
+ROWS_STABLE = 5.0  # если Δ строк < 5% и Δ цены < 2% — медиана площади нестабильна
+
+# Минимальные абсолютные пороги: ниже этих значений — округление,
+# а не проблема. Даже если % большой — разница в 5000 ₽ не поднимет
+# тревогу на цене 14 млн ₽.
+PRICE_NOISE_ABS = 50000.0   # 50 тыс ₽
+AREA_NOISE_ABS = 0.3        # 0.3 м²
+AREA_NOISE_PCT = 2.0    # меньше 2% площади — шум
 
 # ── UTF-8 для stdout/stderr ───────────────────────────────────
 # На русской Windows консоль по умолчанию cp1251. Символы вроде Δ, ≥, ₽
@@ -247,55 +265,92 @@ def _md_icon(cls: str) -> str:
 
 
 # ── диагностика одного ЖК ─────────────────────────────────────
-def diagnose(item: dict) -> list[str]:
-    out = []
+def diagnose(item: dict, spec=None) -> list:
+    """Список фраз — что именно странно в этом ЖК.
 
+    Пишет только значимые фразы. Шум (2 лота, 0.1% площади) не
+    упоминается.
+    """
+    out = []
+    asym = ((getattr(spec, "cross_check", None) or {})
+            .get("asymmetric") if spec else None)
+
+    # ── объём ──
     rows_rc = item.get("rows_rc") or 0
     rows_src = item.get("rows_src") or 0
     if rows_rc != rows_src:
         n = abs(rows_rc - rows_src)
         pct = (n / max(rows_src, 1)) * 100 if rows_src else 0.0
-        big = pct >= ROWS_PCT_NOISE and n >= ROWS_ABS_NOISE
-        if rows_rc < rows_src:
-            key = "rows_less_big" if big else "rows_less_sm"
-        else:
-            key = "rows_more_big" if big else "rows_more_sm"
-        out.append(DIAG[key].format(n=n, pct=pct))
+        big = pct >= ROWS_NOISE_PCT and n >= ROWS_NOISE_ABS
+        if big:
+            key = "rows_less_big" if rows_rc < rows_src else "rows_more_big"
+            out.append(DIAG[key].format(n=n, pct=pct))
 
+    # ── площадь ──
+    # Медиана площади нестабильна на границе категорий. Если состав
+    # и цена совпадают — молчим про площадь.
     area_pct = _find_area_diff(item)
-    if area_pct is not None and abs(area_pct) > 0.001:
-        key = ("area_diff_big" if abs(area_pct) >= AREA_PCT_NOISE
-               else "area_diff_sm")
-        out.append(DIAG[key].format(pct=area_pct))
+    price_pct_now = _find_price_diff(item)
+    _rows_stable = (
+        (max(rows_rc, rows_src) > 0) and
+        (abs(rows_rc - rows_src) / max(rows_src, 1) * 100) <= ROWS_STABLE
+    )
+    _price_stable = (price_pct_now is None
+                     or abs(price_pct_now) <= 2.0)
+    area_abs = _find_area_diff_abs(item)
+    if (area_pct is not None
+            and abs(area_pct) >= AREA_NOISE_PCT
+            and (area_abs is None or abs(area_abs) >= AREA_NOISE_ABS)
+            and not (_rows_stable and _price_stable)):
+        out.append(DIAG["area_diff_big"].format(pct=area_pct))
 
+    # ── цена ──
+    price_pct = _find_price_diff(item)
     matches = item.get("price_matches") or {}
+
+    if asym == "source_higher":
+        if price_pct is not None and price_pct < -NOISE_PCT:
+            out.append(DIAG["price_below"].format(pct=price_pct))
+        return out
+
+    # Если даже % большой, но абсолютная разница меньше
+    # 50 тыс ₽ — это округление, а не проблема.
+    price_abs_now = _find_price_diff_abs(item)
+    if (price_pct is not None and abs(price_pct) <= NOISE_PCT):
+        return out
+    if (price_abs_now is not None
+            and abs(price_abs_now) < PRICE_NOISE_ABS):
+        return out
+
     if not matches:
         if any(_is_price(m["metric_left"]) for m in item["metrics"]):
             out.append(DIAG["price_nodata"])
-    else:
-        for _lf, info in matches.items():
-            ratio = info["ratio"]
-            matched = info["matched"]
-            total = info["total"]
-            diff = total - matched
-            share = diff / total * 100 if total else 0.0
+        return out
 
-            if matched == 0:
-                out.append(DIAG["price_none"].format(total=total))
-            elif ratio < MATCH_FEW:
-                out.append(DIAG["price_tiny"].format(
-                    matched=matched, total=total,
-                    share=matched / total * 100))
-            elif ratio < MATCH_MOST:
-                out.append(DIAG["price_most"].format(
-                    diff=diff, total=total, share=share))
-            elif ratio < MATCH_NEAR_FULL:
-                out.append(DIAG["price_part"].format(
-                    diff=diff, total=total, share=share))
-            elif ratio < 1.0:
-                out.append(DIAG["price_some"].format(
-                    diff=diff, total=total, share=share))
+    for _lf, info in matches.items():
+        ratio = info["ratio"]
+        matched = info["matched"]
+        total = info["total"]
+        diff = total - matched
+        share = diff / total * 100 if total else 0.0
+
+        if matched == 0:
+            out.append(DIAG["price_none"].format(total=total))
+        elif ratio < MATCH_FEW:
+            out.append(DIAG["price_tiny"].format(
+                matched=matched, total=total,
+                share=matched / total * 100))
+        elif ratio < MATCH_MOST:
+            out.append(DIAG["price_most"].format(
+                diff=diff, total=total, share=share))
+        elif ratio < MATCH_NEAR_FULL:
+            out.append(DIAG["price_part"].format(
+                diff=diff, total=total, share=share))
+        elif ratio < 1.0:
+            out.append(DIAG["price_some"].format(
+                diff=diff, total=total, share=share))
     return out
+
 
 
 def diagnose_discount(item: dict) -> list[str]:
@@ -455,49 +510,117 @@ def _find_price_diff(item):
     return out
 
 
-def classify(item, rows_tol, area_tol, price_threshold):
+
+
+def _find_price_diff_abs(item):
+    """Абсолютная разница по цене (в рублях) — максимум по модулю."""
+    out = None
+    for m in item["metrics"]:
+        ln = m["metric_left"].lower()
+        rn = m["metric_right"].lower()
+        if _is_price(ln) or _is_price(rn):
+            d = m.get("diff_abs")
+            if d is None:
+                continue
+            if out is None or abs(d) > abs(out):
+                out = d
+    return out
+
+
+def _find_area_diff_abs(item):
+    """Абсолютная разница по площади (в м²) — максимум по модулю."""
+    out = None
+    for m in item["metrics"]:
+        ln = m["metric_left"].lower()
+        rn = m["metric_right"].lower()
+        if "area" in ln or "area" in rn or "площад" in ln or "площад" in rn:
+            d = m.get("diff_abs")
+            if d is None:
+                continue
+            if out is None or abs(d) > abs(out):
+                out = d
+    return out
+
+
+def classify(item, rows_tol, area_tol, price_threshold, spec=None):
     """Возвращает (kind, cls).
 
     kind:
       "problem"  — идёт в основной отчёт
-      "discount" — отсеивается в отдельный файл
+      "discount" — в отдельный файл скидок
       None       — ничего интересного
     """
     rows_rc = item.get("rows_rc") or 0
     rows_src = item.get("rows_src") or 0
     rows_diff = abs(rows_rc - rows_src)
+    rows_pct = (rows_diff / max(rows_src, 1)) * 100 if rows_src else 0.0
+
     area_pct = _find_area_diff(item)
     price_pct = _find_price_diff(item)
 
-    rows_bad = rows_diff > rows_tol
-    area_bad = area_pct is not None and abs(area_pct) > area_tol
-    price_bad = price_pct is not None and abs(price_pct) >= price_threshold
+    rows_bad = (rows_diff > rows_tol
+                and rows_diff >= ROWS_NOISE_ABS
+                and rows_pct >= ROWS_NOISE_PCT)
 
-    # Ничего значимого.
+    area_abs = _find_area_diff_abs(item)
+    price_abs = _find_price_diff_abs(item)
+
+    area_thr = max(area_tol, AREA_NOISE_PCT)
+    area_bad = (area_pct is not None
+                and abs(area_pct) > area_thr
+                and (area_abs is None or abs(area_abs) >= AREA_NOISE_ABS))
+
+    price_bad = (price_pct is not None
+                 and abs(price_pct) >= price_threshold
+                 and (price_abs is None or abs(price_abs) >= PRICE_NOISE_ABS))
+
+    # Медиана площади нестабильна на границе категорий (студии/1к/2к/3к).
+    # Сдвиг 1-2 лотов даёт сдвиг медианы в разы. Если состав и цена
+    # совпадают — не считаем это проблемой.
+    _rows_stable = rows_pct <= ROWS_STABLE
+    _price_stable = price_pct is None or abs(price_pct) <= 2.0
+    if _rows_stable and _price_stable:
+        area_bad = False
+
+    cc = (getattr(spec, "cross_check", None) or {}) if spec else {}
+    asym = cc.get("asymmetric")
+    asym_rows = cc.get("asymmetric_rows")
+
+    if asym == "source_higher" and price_pct is not None and price_pct > 0:
+        price_bad = False
+
+    # Redcat — архив, MR — только активное. Если у Redcat больше лотов
+    # и в спеке помечено asymmetric_rows="redcat_higher", не считать
+    # это проблемой: разница объясняется проданными лотами.
+    if asym_rows == "redcat_higher" and rows_rc > rows_src:
+        rows_bad = False
+        price_bad = False
+        area_bad = False
+
     if not (rows_bad or area_bad or price_bad):
         return None, None
 
-    # Худший модуль для класса.
     worst = 0.0
     for v in (price_pct, area_pct):
         if v is not None and abs(v) > worst:
             worst = abs(v)
-    if rows_bad and rows_src:
-        rows_pct = abs(rows_rc - rows_src) / max(rows_src, 1) * 100
+    if rows_bad:
         worst = max(worst, rows_pct)
     cls = _class_for_pct(worst, price_threshold)
 
-    # Объём или площадь разошлись — всегда проблема.
+    if asym == "source_higher" and not rows_bad and not area_bad:
+        if price_pct is not None and price_pct >= 0:
+            return None, None
+
     if rows_bad or area_bad:
         return "problem", cls
 
-    # Разошлась только цена. Если доля совпавших лотов высокая —
-    # считаем это скидкой на части лотов. Иначе — проблемой.
     matches = item.get("price_matches") or {}
     for info in matches.values():
         if info["ratio"] >= DISCOUNT_MATCH_MIN:
             return "discount", cls
     return "problem", cls
+
 
 
 def collect(sources, threshold, specs, rows_tol, area_tol):
@@ -571,15 +694,15 @@ def collect(sources, threshold, specs, rows_tol, area_tol):
                     "metrics": per_metric,
                     "price_matches": price_matches,
                 }
-                kind, cls = classify(item, rows_tol, area_tol, threshold)
+                kind, cls = classify(item, rows_tol, area_tol, threshold, specs.get(src_key))
                 if kind is None:
                     continue
                 item["class"] = cls
                 if kind == "problem":
-                    item["diagnostics"] = diagnose(item)
+                    item["diagnostics"] = diagnose(item, specs.get(src_key))
                     problems.append(item)
                 else:
-                    item["diagnostics"] = diagnose_discount(item)
+                    item["diagnostics"] = diagnose(item, specs.get(src_key))  # discount тоже с spec
                     discounts.append(item)
 
     order = {"crit": 0, "medium": 1, "small": 2, "ok": 3}

@@ -80,7 +80,13 @@ class SourceSpec:
     browser_wait_for: str = ""
     browser_wait_ms: int = 0
     browser_headless: bool = True
-    
+
+    # --- заголовки запроса ---
+    # Пробрасываются в fetcher как есть. Нужны для API, которые
+    # блокируют дефолтный User-Agent requests (MR Group, servicepipe).
+    # Пример: {"User-Agent": "Mozilla/5.0 ...", "Referer": "..."}
+    headers: dict = field(default_factory=dict)
+
     # --- формат ответа ---
     format: str = "json"              # "json" или "xml" (YRL-фиды)
     xml_record_tag: str = "offer"     # имя тега одной записи в XML
@@ -361,6 +367,89 @@ def _a101_unique_projects(payload, split_value=None):
                 "commercial": item.get("project_commercial") or "",
             }
     return list(seen.values())
+
+# ──────────────────────────────────────────────────────────────
+#  ПРЕПРОЦЕССОР GK OSNOVA
+# ──────────────────────────────────────────────────────────────
+# У квартир в ответе filter только project_id, без имени ЖК.
+# Preprocessor проставляет project_id (из split value) и, лениво,
+# project_name — тянет из /api/building-objects/projects, кэширует.
+
+@register_preprocessor("osnova_flats")
+def _osnova_flats(payload, project_id=None):
+    """Разворачивает data.flats[] и обогащает именем ЖК."""
+    # Ленивый кэш {id: name}, один раз за процесс
+    if _osnova_flats._cache is None:
+        try:
+            import requests as _rq
+            r = _rq.get(
+                "https://gk-osnova.ru/api/building-objects/projects",
+                headers={
+                    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; "
+                                   "x64) AppleWebKit/537.36 (KHTML, like "
+                                   "Gecko) Chrome/122.0.0.0 Safari/537.36"),
+                    "Accept": "application/json",
+                    "Referer": "https://gk-osnova.ru/",
+                },
+                timeout=20)
+            items = r.json().get("data") or []
+            _osnova_flats._cache = {str(it.get("id")): it.get("name")
+                                     for it in items if it.get("id") is not None}
+        except Exception as _e:
+            import logging as _log
+            _log.warning("osnova_flats: не удалось загрузить справочник: %s", _e)
+            _osnova_flats._cache = {}
+    cache = _osnova_flats._cache
+
+    pid = str(project_id) if project_id is not None else None
+    pname = cache.get(pid)
+
+    rows = []
+    skipped_non_res = 0
+    for f in ((payload or {}).get("data", {}) or {}).get("flats") or []:
+        layout = f.get("layout") or {}
+        # Пропускаем нежилые помещения (коммерция, кладовки и т.п.):
+        # они не сопоставимы с Квартира/Апартамент/Таунхаус в Redcat
+        # и только портят медиану площади.
+        if layout.get("type") == "non-residential":
+            skipped_non_res += 1
+            continue
+        row = dict(f)
+        row["project_id"] = pid
+        row["project_name"] = pname
+        rows.append(row)
+    if skipped_non_res:
+        import logging as _log
+        _log.info("osnova_flats: пропущено %d нежилых помещений", skipped_non_res)
+    return rows
+
+_osnova_flats._cache = None
+
+
+# ──────────────────────────────────────────────────────────────
+#  ПРЕПРОЦЕССОР MR GROUP
+# ──────────────────────────────────────────────────────────────
+# У MR в поле price — базовая цена без скидки. Redcat хранит
+# цену СО СКИДКОЙ. Чтобы сверка сходилась, перезаписываем price
+# на discount.price (если он заполнен) и meter_price — на
+# discount.meter_price. Если скидки нет — оставляем базовую.
+
+@register_preprocessor("mr_flats")
+def _mr_flats(payload, split_value=None):
+    """item.price → item.discount.price, если скидка есть."""
+    rows = []
+    for item in (payload or {}).get("items") or []:
+        row = dict(item)
+        d = item.get("discount") or {}
+        if d.get("price"):
+            row["price"] = d["price"]
+            row["price_base"] = item.get("price")
+        if d.get("meter_price"):
+            row["meter_price"] = d["meter_price"]
+            row["meter_price_base"] = item.get("meter_price")
+        rows.append(row)
+    return rows
+
 
 # ──────────────────────────────────────────────────────────────
 #  ПАРСЕРЫ ОТВЕТА
@@ -977,6 +1066,9 @@ _SAFE_EXPR = re.compile(r"^[\w\s.+\-*/()]+$")
 def _eval_derived(expr: str, row: dict):
     if not _SAFE_EXPR.match(expr):
         raise ValueError(f"Недопустимое выражение: {expr!r}")
+    if "*" in expr and "**" in expr.replace(" ", ""):
+        raise ValueError(
+            f"Оператор ** запрещён — вычисление слишком дорогое: {expr!r}")
     scope = {}
     for k, v in row.items():
         if isinstance(v, (int, float)) and not isinstance(v, bool):

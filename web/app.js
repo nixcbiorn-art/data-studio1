@@ -2017,131 +2017,7 @@ const App = {
     const lTag = r.left_external ? 'внешний' : 'внутренний';
     const rTag = r.right_external ? 'внешний' : 'внутренний';
     const meta = el('div', { class: 'tiny muted', style: 'margin-bottom:11px' },
-      `Сопоставление: ` +
-      `«${r.on_left}» (${lLabel}, ${lTag}) ↔ ` +
-      `«${r.on_right}» (${rLabel}, ${rTag}), ` +
-      `агрегация: ${r.agg}, ` +
-      `порог: до ${r.thresholds.ok}% — сходится, до ${r.thresholds.warn}% — внимание, ` +
-      `выше — смотреть руками. ` +
-      (r.normalize_key ? 'Ключи нормализуются.' : 'Ключи сравниваются как есть.') +
-      (r.filter_right ? ` Фильтр справа: ${r.filter_right.field} ${r.filter_right.op} ${r.filter_right.value}.` : ''));
-
-    const blocks = [head, meta];
-
-    const renderItems = (title, cls, items, clsLabel) => {
-      const metricKeys = Object.keys(r.metrics);
-      const cols = ['название', 'строк внешн.', 'строк внутр.'];
-      for (const m of metricKeys) {
-        cols.push(`${lLabel}: ${m}`);
-        cols.push(`${rLabel}: ${r.metrics[m]}`);
-        cols.push('Δ%');
-      }
-      const rows = items.map((it) => {
-        const row = {
-          'название': it.display,
-          'строк слева': it.left_rows,
-          'строк справа': it.right_rows,
-        };
-        for (const m of metricKeys) {
-          const mm = (it.metrics || {})[m] || {};
-          row[`левая: ${m}`] = mm.left;
-          row[`правая: ${r.metrics[m]}`] = mm.right;
-          row['Δ%'] = mm.diff_pct;
-        }
-        return row;
-      });
-      return el('div', { style: 'margin-bottom:14px' },
-        el('div', { class: 'row tight', style: 'margin-bottom:6px' },
-          el('span', { class: 'pill ' + cls }, clsLabel),
-          el('span', { class: 'muted tiny' }, `${items.length} шт.`)),
-        el('div', { class: 'table-wrap', style: 'max-height:380px' },
-          renderTable(cols, rows, { max: 60 })));
-    };
-
-    const blocksAdd = [
-      renderItems('Смотреть руками', 'crit', r.items_by_class.critical || [], 'Δ ≥ ' + r.thresholds.warn + '%'),
-      renderItems('Внимание', 'warn', r.items_by_class.warn || [], 'Δ ' + r.thresholds.ok + '–' + r.thresholds.warn + '%'),
-      renderItems('Мало данных', 'info', r.items_by_class.insufficient || [], 'меньше ' + r.min_group_size + ' строк'),
-      renderItems('Только слева', 'info', r.items_by_class.left_only || [], 'есть у источника, нет у соседа'),
-      renderItems('Только справа', 'info', r.items_by_class.right_only || [], 'есть у соседа, нет у источника'),
-    ].filter(Boolean);
-
-    if (!blocksAdd.length) {
-      blocks.push(el('div', { class: 'card empty tiny' },
-        `Нечего сравнивать: сопоставленных групп нет. Проверьте ключи on_left/on_right и фильтр filter_right.`));
-    } else {
-      blocks.push(...blocksAdd);
-    }
-
-    if ((r.items_by_class.ok || []).length) {
-      const details = el('details', {}, el('summary', {
-        style: 'cursor:pointer;color:var(--muted);padding:4px 0'
-      }, `Сходится (${r.items_by_class.ok.length}) — развернуть`));
-      details.appendChild(App._renderCrossCheckOkBlock(r));
-      blocks.push(details);
-    }
-    return el('div', {}, ...blocks);
-  },
-
-  _renderCrossCheckOkBlock(r) {
-    const metricKeys = Object.keys(r.metrics);
-    const lLabel = r.left_label || r.source || 'внешний';
-    const rLabel = r.right_label || r.with_table || 'внутренний';
-    const cols = ['название', 'строк внешн.', 'строк внутр.'];
-    for (const m of metricKeys) {
-      cols.push(`${lLabel}: ${m}`);
-      cols.push(`${rLabel}: ${r.metrics[m]}`);
-      cols.push('Δ%');
-    }
-    const rows = (r.items_by_class.ok || []).map((it) => {
-      const row = {
-        'название': it.display,
-        'строк слева': it.left_rows,
-        'строк справа': it.right_rows,
-      };
-      for (const m of metricKeys) {
-        const mm = (it.metrics || {})[m] || {};
-        row[`левая: ${m}`] = mm.left;
-        row[`правая: ${r.metrics[m]}`] = mm.right;
-        row['Δ%'] = mm.diff_pct;
-      }
-      return row;
-    });
-    return el('div', { class: 'table-wrap', style: 'max-height:380px;margin-top:6px' },
-      renderTable(cols, rows, { max: 60 }));
-  },
-
-  /* ── СВЕРКА С REDCAT ───────────────────────────────────────────────── */
-  async runCrossCheck() {
-    const table = App.extTable;
-    if (!table) { toast('Не выбрана внешняя таблица', true); return; }
-    const box = $('extCrossCheck');
-    box.replaceChildren(el('div', { class: 'muted tiny' }, 'считаю…'));
-    try {
-      const r = await api.get('cross_check', { source: table });
-      App.crossCheck = r;
-      box.replaceChildren(App._renderCrossCheck(r));
-    } catch (e) {
-      box.replaceChildren(el('div', { class: 'empty tiny' }, e.message));
-      toast(e.message, true);
-    }
-  },
-
-  _renderCrossCheck(r) {
-    const s = r.summary;
-    const head = el('div', { class: 'row tight', style: 'margin-bottom:11px;flex-wrap:wrap' },
-      el('span', { class: 'pill crit' }, `смотреть руками: ${s.critical}`),
-      el('span', { class: 'pill warn' }, `внимание: ${s.warn}`),
-      el('span', { class: 'pill ok' }, `сходится: ${s.ok}`),
-      s.insufficient ? el('span', { class: 'pill info' }, `мало данных: ${s.insufficient}`) : null,
-      s.left_only ? el('span', { class: 'pill info' }, `только слева: ${s.left_only}`) : null,
-      s.right_only ? el('span', { class: 'pill info' }, `только справа: ${s.right_only}`) : null,
-      el('div', { class: 'spacer' }),
-      el('button', { class: 'sm', onclick: () => App.exportCrossCheck('csv') }, '⬇ CSV'),
-      el('button', { class: 'sm', onclick: () => App.exportCrossCheck('json') }, '⬇ JSON'));
-
-    const meta = el('div', { class: 'tiny muted', style: 'margin-bottom:11px' },
-      `Сопоставление: «${r.on_left}» ↔ «${r.on_right}», ` +
+      `Сопоставление: «${r.on_left}» (${lLabel}, ${lTag}) ↔ «${r.on_right}» (${rLabel}, ${rTag}), ` +
       `агрегация: ${r.agg}, ` +
       `порог: до ${r.thresholds.ok}% — сходится, до ${r.thresholds.warn}% — внимание, ` +
       `выше — смотреть руками. ` +
@@ -2232,13 +2108,6 @@ const App = {
       renderTable(cols, rows, { max: 60 }));
   },
 
-  exportCrossCheck(format) {
-    if (!App.extTable) { toast('Не выбрана таблица', true); return; }
-    const qs = new URLSearchParams({
-      what: 'cross_check', source: App.extTable, format,
-    });
-    window.location = `/api/export?${qs}`;
-  },
 
 
   async initSql() {

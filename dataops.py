@@ -568,9 +568,28 @@ def crosstab(db_path, table, row_field, col_field, metric=None, agg="count",
 # ──────────────────────────────────────────────────────────────
 #  SQL-КОНСОЛЬ (строго SELECT)
 # ──────────────────────────────────────────────────────────────
-_FORBIDDEN_SQL = re.compile(
-    r"\b(insert|update|delete|drop|alter|create|replace|attach|detach|"
-    r"pragma|vacuum|reindex|analyze|begin|commit|rollback)\b", re.IGNORECASE)
+# Опасные команды. Ищем их как команды, а не как часть слова, иначе
+# REPLACE(...) и sales_analyze ловятся как запрещённые.
+# Команда должна стоять в начале утверждения, после ; или после (.
+_FORBIDDEN_STMT = re.compile(
+    r"(?im)(?:^|;|\()\s*("
+    r"insert|update|delete|drop|alter|create|attach|detach|"
+    r"vacuum|reindex|pragma|begin|commit|rollback|savepoint|release"
+    r")\b"
+)
+# Модификатор INSERT OR REPLACE.
+_FORBIDDEN_KEYWORD = re.compile(r"(?i)\breplace\s+into\b")
+
+
+def _is_safe_sql(text: str) -> bool:
+    """True — запрос безопасен (чтение). False — есть запрещённое."""
+    stripped = re.sub(r"'[^']*'", "''", text)
+    if _FORBIDDEN_STMT.search(stripped):
+        return False
+    if _FORBIDDEN_KEYWORD.search(stripped):
+        return False
+    return True
+
 
 
 def run_sql(db_path, sql, limit=SQL_ROW_LIMIT) -> dict:
@@ -589,7 +608,7 @@ def run_sql(db_path, sql, limit=SQL_ROW_LIMIT) -> dict:
     if not re.match(r"^(select|with)\b", text, re.IGNORECASE):
         raise DataError("Разрешены только запросы SELECT / WITH — "
                         "приложение не изменяет собранные данные.")
-    if _FORBIDDEN_SQL.search(re.sub(r"'[^']*'", "''", text)):
+    if not _is_safe_sql(text):
         raise DataError("В запросе есть изменяющая команда. "
                         "Доступно только чтение.")
 
@@ -610,6 +629,7 @@ def run_sql(db_path, sql, limit=SQL_ROW_LIMIT) -> dict:
 _SAFE_EXPR = re.compile(r"^[\w\s.+\-*/()%<>=!]+$")
 
 
+_DOUBLE_STAR = re.compile(r"\*\s*\*")
 def validate_formula(expr: str, column_names) -> list:
     """Проверяет формулу до сохранения: символы, синтаксис, знакомые имена.
 
@@ -617,6 +637,9 @@ def validate_formula(expr: str, column_names) -> list:
     строке любая формула честно падает на «нет такого имени», хотя сама
     формула правильная.
     """
+    if _DOUBLE_STAR.search(expr or ""):
+        raise DataError(
+            "Оператор ** запрещён — вычисление слишком дорогое.")
     if not _SAFE_EXPR.match(expr or ""):
         raise DataError("В формуле есть недопустимые символы. Разрешены имена "
                         "колонок, числа и знаки + - * / ( ) % > < =")
@@ -640,6 +663,9 @@ def eval_formula(expr: str, row: dict):
     функций, импортов и доступа к атрибутам. Поэтому формулу безопасно
     принимать из браузера.
     """
+    if _DOUBLE_STAR.search(expr or ""):
+        raise DataError(
+            "Оператор ** запрещён — вычисление слишком дорогое.")
     if not _SAFE_EXPR.match(expr or ""):
         raise DataError("В формуле есть недопустимые символы. Разрешены имена "
                         "колонок, числа и знаки + - * / ( ) % > < =")

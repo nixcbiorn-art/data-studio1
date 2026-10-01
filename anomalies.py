@@ -23,6 +23,11 @@ import logging
 import math
 import sqlite3
 import statistics
+try:
+    from thresholds import z_threshold_for_group as _z_thr
+except ImportError:
+    def _z_thr(size, base_z=3.5, **kw):
+        return base_z
 
 # Порог модифицированного z-score. 3.5 — общепринятая отсечка (Iglewicz & Hoaglin).
 DEFAULT_Z = 3.5
@@ -291,9 +296,10 @@ def detect_data_anomalies(rows, spec, z_threshold=DEFAULT_Z, max_per_kind=50):
                     continue
                 gnums = [v for _, v in members]
                 gstats = robust_stats(gnums)
+                _z_thr_local = _z_thr(len(members), base_z=z_threshold)
                 for r, v in members:
                     z = zscore_from_stats(gstats, v)
-                    if z is not None and abs(z) > z_threshold and shown < max_per_kind:
+                    if z is not None and abs(z) > _z_thr_local and shown < max_per_kind:
                         shown += 1
                         anomalies.append(_anomaly(
                             source, "group_outlier", "warning",

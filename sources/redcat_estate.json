@@ -101,7 +101,7 @@
     "split_values_name_field": "estate_id",
     "split_child_name_field": "",
     "overflow_sort": "price_desc",
-    "concurrency": 4,
+    "concurrency": 2,
     "id_field": "id",
     "name_field": "number",
     "derived": {

@@ -44,6 +44,17 @@ EXPORT_LOG = HERE / "tg_bot_export.log"
 BOT_LOG = HERE / "tg_bot.log"
 STATE = HERE / "tg_bot_state.json"
 
+
+# Роли и права пользователей.
+try:
+    import bot_users
+except ImportError:
+    bot_users = None
+
+
+# Имя бота — заполняется в poll_loop после getMe,
+# нужно для ссылок-приглашений.
+_BOT_USERNAME = ""
 BOT_STARTED_AT = datetime.now()
 
 API = "https://api.telegram.org"
@@ -74,6 +85,26 @@ MAIN_KEYBOARD = {
     "resize_keyboard": True,
     "is_persistent": True,
 }
+
+# Reply-клавиатура — разная для admin и viewer.
+MAIN_KEYBOARD_VIEWER = {
+    "keyboard": [
+        [{"text": "📊 /status"}, {"text": "🔝 /top 10"}],
+        [{"text": "🔍 /find"},  {"text": "📋 /fill"}],
+        [{"text": "📁 /files"}, {"text": "🔀 /diff"}],
+        [{"text": "❓ /help"}],
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True,
+}
+
+
+def main_keyboard(role: str = "viewer") -> dict:
+    """Возвращает reply-клавиатуру для роли."""
+    if role == "admin":
+        return MAIN_KEYBOARD
+    return MAIN_KEYBOARD_VIEWER
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -712,6 +743,48 @@ def _save_run_state(state: dict) -> None:
         pass
 
 
+def _process_alive(pid: int) -> bool:
+    """Проверяет, жив ли процесс с данным PID.
+
+    На Windows os.kill(pid, 0) НЕ «проверяет» — он вызывает
+    TerminateProcess и УБИВАЕТ процесс. Поэтому на Windows
+    используем OpenProcess + GetExitCodeProcess через ctypes.
+    На POSIX os.kill(pid, 0) — штатный способ.
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                code = wintypes.DWORD()
+                if not kernel32.GetExitCodeProcess(
+                        handle, ctypes.byref(code)):
+                    return False
+                return code.value == STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            # Если ctypes не сработал — считаем, что процесса нет,
+            # чтобы не запускать второй сбор поверх.
+            return False
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _scraper_is_running() -> bool:
     """Живой ли сейчас запуск. Проверяем и объект, и state-файл."""
     with _SCRAPER_LOCK:
@@ -720,19 +793,7 @@ def _scraper_is_running() -> bool:
     st = _load_run_state()
     if not st.get("running"):
         return False
-    pid = st.get("pid")
-    if not isinstance(pid, int):
-        return False
-    # Проверка на Windows/Linux без psutil.
-    try:
-        if os.name == "nt":
-            # os.kill(pid, 0) на Windows работает как «просто проверить».
-            # Бросает OSError, если процесса нет.
-            os.kill(pid, 0)
-        else:
-            os.kill(pid, 0)
-    except OSError:
-        # Процесса нет — значит, завершился, а state остался.
+    if not _process_alive(st.get("pid")):
         st["running"] = False
         _save_run_state(st)
         return False
@@ -809,6 +870,14 @@ def _scraper_start(chat_id: str, token: str, extra_args: list) -> tuple[bool, st
 
     # Аргументы по умолчанию, если не передали ни одного: только квартиры.
     args = list(extra_args) if extra_args else ["--only", "apartments"]
+    # Проверка admin-only команд.
+    if bot_users is not None and cmd in bot_users.ADMIN_ONLY:
+        if role != "admin":
+            _reply(token, chat_id,
+                   f"⛔ Команда <code>{cmd}</code> только для "
+                   f"администраторов. Ваша роль: <b>{role}</b>.",
+                   reply_markup=main_keyboard("viewer"))
+            return
 
     # Пробуем писать stdout/stderr в файл, чтобы процесс не завис на PIPE.
     try:
@@ -1615,7 +1684,40 @@ def _handle_html_callback(token: str, chat_id: str, cb_id: str,
     answer_callback(token, cb_id, "неизвестное действие")
 
 
-def handle_command(token: str, chat_id: str, text: str) -> None:
+def handle_command(token: str, chat_id: str, text: str,
+                   role: str = "viewer") -> None:
+    # Проверка роли и прав (bot_users).
+    if bot_users is not None:
+        _role_now = bot_users.get_role(chat_id)
+        if _role_now is None:
+            # Может быть, это переход по приглашению:
+            # /start <код> (deep link из ссылки t.me/...)
+            _invited = False
+            _s = (text or "").strip()
+            if _s.startswith("/start"):
+                _parts = _s.split(maxsplit=1)
+                if len(_parts) > 1:
+                    _code = _parts[1].strip()
+                    _ok, _new_role, _msg = bot_users.use_invite(
+                        _code, chat_id)
+                    if _ok:
+                        _role_now = _new_role
+                        _invited = True
+                        LOG.info("по приглашению %s: %s → %s",
+                                 _code, chat_id, _new_role)
+                        _reply(token, chat_id,
+                               f"✅ Приглашение принято. Ваша роль: "
+                               f"<b>{_new_role}</b>\n\n"
+                               f"Напишите /help — покажу, что умею.",
+                               reply_markup=main_keyboard(_new_role))
+                    else:
+                        LOG.warning("плохой код %r от %s: %s",
+                                    _code, chat_id, _msg)
+            if not _invited:
+                bot_users.add_pending(chat_id, "", text)
+                LOG.warning("сообщение от %s — не в списке", chat_id)
+                return
+        role = _role_now
     LOG.info("команда от %s: %s", chat_id, (text or "").strip()[:120])
     raw = (text or "").strip()
     # Reply-кнопки снизу подписаны с эмодзи: «📁 /files». Telegram
@@ -1633,11 +1735,11 @@ def handle_command(token: str, chat_id: str, text: str) -> None:
     LOG.debug("разобрано: cmd=%r args=%r", cmd, args)
 
     if cmd in ("/start", "/help"):
-        _reply(token, chat_id, HELP_TEXT, reply_markup=MAIN_KEYBOARD)
+        _reply(token, chat_id, HELP_TEXT, reply_markup=main_keyboard(role))
 
     elif cmd == "/showkbd":
         _reply(token, chat_id, "Клавиатура снизу вернулась.",
-               reply_markup=MAIN_KEYBOARD)
+               reply_markup=main_keyboard(role))
 
     elif cmd == "/hidekbd":
         _reply(token, chat_id, "Клавиатура снизу скрыта. "
@@ -1692,7 +1794,7 @@ def handle_command(token: str, chat_id: str, text: str) -> None:
             send_document(token, chat_id, csv, caption="Список проблем (CSV)")
         if disc:
             send_document(token, chat_id, disc, caption="Скидочные (CSV)")
-        _reply(token, chat_id, build_status_text(), reply_markup=MAIN_KEYBOARD)
+        _reply(token, chat_id, build_status_text(), reply_markup=main_keyboard(role))
 
     elif cmd == "/diff":
         _reply(token, chat_id, _diff_reports())
@@ -1940,6 +2042,106 @@ def handle_command(token: str, chat_id: str, text: str) -> None:
                f"<b>Последние {len(tail)} строк лога:</b>\n"
                f"<pre>{_html_escape(chr(10).join(tail))}</pre>")
 
+    elif cmd == "/invite":
+        _role = "viewer"
+        if args:
+            _role = args[0].lower()
+            if _role not in ("viewer", "admin"):
+                _reply(token, chat_id,
+                       "Формат: <code>/invite [viewer|admin]</code>")
+                return
+        _code, _expires = bot_users.create_invite(_role, chat_id)
+        _url = (f"https://t.me/{_BOT_USERNAME}?start={_code}"
+                if _BOT_USERNAME else f"/start {_code}")
+        _reply(token, chat_id,
+               f"🎟 <b>Приглашение создано</b>\n\n"
+               f"Роль: <b>{_role}</b>\n"
+               f"Код: <code>{_code}</code>\n"
+               f"Срок: до {_expires[:16].replace('T', ' ')}\n"
+               f"Одноразовый.\n\n"
+               f"Отправьте ссылку человеку:\n"
+               f"<code>{_url}</code>\n\n"
+               f"Если ссылка не открывается — пусть напишет боту:\n"
+               f"<code>/start {_code}</code>")
+
+    elif cmd == "/invites":
+        _invs = bot_users.list_invites()
+        if not _invs:
+            _reply(token, chat_id, "Активных приглашений нет.")
+            return
+        lines = ["<b>Приглашения</b>", ""]
+        for inv in _invs[:30]:
+            if inv["used_by"]:
+                status = f"✅ использован ({inv['used_by']})"
+            elif inv["expired"]:
+                status = "⌛ истёк"
+            else:
+                status = "🟢 активен"
+            lines.append(
+                f"• <code>{inv['code']}</code> — "
+                f"<b>{inv['role']}</b> — {status}")
+        lines += ["", "Отозвать: <code>/revoke &lt;код&gt;</code>"]
+        _reply(token, chat_id, "\n".join(lines))
+
+    elif cmd == "/revoke":
+        if not args:
+            _reply(token, chat_id, "Формат: <code>/revoke &lt;код&gt;</code>")
+            return
+        ok, msg = bot_users.revoke_invite(args[0])
+        _reply(token, chat_id, ("✅ " if ok else "❌ ") + msg)
+
+    elif cmd == "/users":
+        _users_text = "<b>Пользователи бота</b>\n\n"
+        for u in bot_users.list_users():
+            _users_text += (f"• <code>{_html_escape(u['chat_id'])}</code> — "
+                            f"<b>{_html_escape(u['role'])}</b>"
+                            + (f" ({_html_escape(u['name'])})" if u['name'] else "")
+                            + f"\n  добавлен: {_html_escape(u['added_at'])}\n")
+        _reply(token, chat_id, _users_text)
+
+    elif cmd == "/pending":
+        pending = bot_users.list_pending()
+        if not pending:
+            _reply(token, chat_id, "Ожидающих нет.")
+            return
+        lines = ["<b>Писали боту, но не в списке:</b>", ""]
+        for p in pending[:30]:
+            lines.append(
+                f"• <code>{_html_escape(p['chat_id'])}</code>"
+                + (f" {_html_escape(p['name'])}" if p["name"] else "")
+                + f" — попыток {p['attempts']}, последнее: "
+                  f"{_html_escape(p['last_text'][:60])}")
+        lines += ["", "Добавить: <code>/add_user &lt;id&gt; [viewer|admin]</code>"]
+        _reply(token, chat_id, "\n".join(lines))
+
+    elif cmd == "/add_user":
+        if not args:
+            _reply(token, chat_id,
+                   "Формат: <code>/add_user &lt;chat_id&gt; "
+                   "[viewer|admin]</code>")
+            return
+        _cid = args[0]
+        _role = args[1].lower() if len(args) > 1 else "viewer"
+        ok, msg = bot_users.add_user(_cid, _role)
+        _reply(token, chat_id, ("✅ " if ok else "❌ ") + msg)
+
+    elif cmd == "/remove_user":
+        if not args:
+            _reply(token, chat_id,
+                   "Формат: <code>/remove_user &lt;chat_id&gt;</code>")
+            return
+        ok, msg = bot_users.remove_user(args[0])
+        _reply(token, chat_id, ("✅ " if ok else "❌ ") + msg)
+
+    elif cmd == "/set_role":
+        if len(args) < 2:
+            _reply(token, chat_id,
+                   "Формат: <code>/set_role &lt;chat_id&gt; "
+                   "[viewer|admin]</code>")
+            return
+        ok, msg = bot_users.set_role(args[0], args[1].lower())
+        _reply(token, chat_id, ("✅ " if ok else "❌ ") + msg)
+
     else:
         _reply(token, chat_id,
                f"Неизвестная команда: {cmd}. /help — что я умею.")
@@ -2126,7 +2328,30 @@ def poll_loop(token: str, allowed_chats: set) -> None:
         LOG.error("getMe отклонил токен")
         return
     username = me["result"].get("username") or "?"
+    global _BOT_USERNAME
+    _BOT_USERNAME = username
     print(f"🤖 Бот @{username} запущен (long polling).")
+    # Роли для тех, кто из окружения.
+    # chat_id в poll_loop появляется только внутри цикла обработки
+    # сообщений. Здесь берём его из окружения напрямую.
+    #
+    # TELEGRAM_CHAT_ID     → admin (владелец)
+    # TELEGRAM_EXTRA_CHATS → viewer (гости, только чтение)
+    _main_chat = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+    if bot_users is not None and _main_chat:
+        if bot_users.get_role(_main_chat) is None:
+            bot_users.ensure_admin(_main_chat)
+            LOG.info("TELEGRAM_CHAT_ID добавлен как admin: %s",
+                     _main_chat)
+    # Гости из extra — viewer, если их ещё нет.
+    _extra_raw = (os.environ.get("TELEGRAM_EXTRA_CHATS") or "").strip()
+    if bot_users is not None and _extra_raw:
+        for _cid in [x.strip() for x in _extra_raw.split(",") if x.strip()]:
+            if _cid == _main_chat:
+                continue
+            if bot_users.get_role(_cid) is None:
+                bot_users.add_user(_cid, "viewer")
+                LOG.info("TELEGRAM_EXTRA_CHATS: %s → viewer", _cid)
     log_startup_environment()
     LOG.info("Бот @%s запущен", username)
 
@@ -2137,7 +2362,9 @@ def poll_loop(token: str, allowed_chats: set) -> None:
                f"Снизу — кнопки основных команд.")
         for cid in allowed_chats:
             send_message(token, cid, msg, parse_mode="HTML",
-                         reply_markup=MAIN_KEYBOARD)
+                         reply_markup=main_keyboard(
+                             bot_users.get_role(cid) or "viewer"
+                             if bot_users else "viewer"))
     except Exception as e:
         LOG.warning("не удалось отправить уведомление о старте: %s", e)
 
@@ -2192,7 +2419,9 @@ def poll_loop(token: str, allowed_chats: set) -> None:
                             chat_id)
                 continue
             try:
-                handle_command(token, chat_id, text)
+                handle_command(token, chat_id, text,
+                               role=(bot_users.get_role(chat_id)
+                                     if bot_users else "viewer"))
             except Exception as e:
                 LOG.exception("ошибка обработки команды: %s", e)
 

@@ -1,0 +1,121 @@
+{
+  "key": "osnova_apartments",
+  "title": "ГК Основа — квартиры",
+  "external": true,
+  "url": "https://gk-osnova.ru/api/building-objects/filter",
+  "split_url_template": "https://gk-osnova.ru/api/building-objects/filter?projects[0]={value}",
+  "split_param": "",
+  "split_values_from": "osnova_projects",
+  "split_values_field": "id",
+  "concurrency": 1,
+  "page_size": 50,
+  "page_size_param": "per_page",
+  "page_number_param": "page",
+  "data_path": [
+    "data",
+    "flats"
+  ],
+  "total_path": [
+    "data",
+    "pagination",
+    "total"
+  ],
+  "preprocess": "osnova_flats",
+  "id_field": "id",
+  "name_field": "number",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+    "Referer": "https://gk-osnova.ru/"
+  },
+  "mapping": {
+    "id": "id",
+    "uuid": "uuid",
+    "number": "number",
+    "status": "status",
+    "cost": "cost",
+    "discount": "discount",
+    "discount_cost": "discount_cost",
+    "meter_cost": "meter_cost",
+    "discount_meter_cost": "discount_meter_cost",
+    "layout_code": "layout.code",
+    "layout_type": "layout.type",
+    "rooms": "layout.room_count",
+    "area": "layout.area",
+    "living_area": "layout.living_area",
+    "floor": "floor.number",
+    "building": "building",
+    "section": "section",
+    "project_id": "project_id",
+    "project_name": "project_name"
+  },
+  "numeric_fields": [
+    "cost",
+    "discount_cost",
+    "meter_cost",
+    "discount_meter_cost",
+    "area",
+    "living_area",
+    "floor",
+    "rooms"
+  ],
+  "group_fields": [
+    "project_id",
+    "project_name",
+    "status",
+    "layout_type"
+  ],
+  "track_fields": [
+    "cost",
+    "discount_cost",
+    "area",
+    "status"
+  ],
+  "positive_fields": [
+    "cost",
+    "area"
+  ],
+  "required_fields": [
+    "id",
+    "project_id",
+    "project_name"
+  ],
+  "pagination_strategy": "page_number",
+  "parse_strategy": "json_path",
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "project_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "cost": "price",
+      "area": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "Основа"
+      },
+      {
+        "field": "object_type",
+        "op": "notin",
+        "values": [
+          "Машино-место",
+          "Кладовка",
+          "Коммерческая недвижимость"
+        ]
+      }
+    ],
+    "min_group_size": 5,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    }
+  },
+  "rate_limit_rps": 1.0,
+  "circuit_breaker_failures": 100,
+  "circuit_breaker_cooldown_sec": 30
+}

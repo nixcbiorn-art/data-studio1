@@ -148,7 +148,7 @@ def _run_http_worker(spec, token, params, collected_snapshot, since, host_sem):
     host_sem.acquire()
     try:
         rows, inc, total = collect_source(
-            spec, session, token, params, collected_snapshot, since_map=since_map)
+            spec, session, token, params, collected_snapshot)
         return spec.key, rows, inc, total, None
     except Exception as e:  # noqa: BLE001 — один источник не должен ронять остальные
         logging.exception("[%s] сбор упал", spec.key)
@@ -170,7 +170,7 @@ def _run_browser_worker(spec, token, params, collected_snapshot, since, host_sem
     host_sem.acquire()
     try:
         rows, inc, total = collect_source(
-            spec, None, token, params, collected_snapshot, since_map=since_map)
+            spec, None, token, params, collected_snapshot)
         return spec.key, rows, inc, total, None
     except Exception as e:  # noqa: BLE001
         logging.exception("[%s] браузерный сбор упал", spec.key)

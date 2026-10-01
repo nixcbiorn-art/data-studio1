@@ -258,8 +258,10 @@ def _fetch_http_sync(url, spec, session=None, **kwargs):
     if wait > 0:
         time.sleep(min(wait, 30.0))
 
+    request_headers = dict(getattr(spec, "headers", None) or {})
     try:
-        resp = session.get(url, timeout=kwargs.get("timeout", REQUEST_TIMEOUT))
+        resp = session.get(url, headers=request_headers or None,
+                           timeout=kwargs.get("timeout", REQUEST_TIMEOUT))
         headers = dict(resp.headers)
         status = resp.status_code
 
@@ -274,7 +276,12 @@ def _fetch_http_sync(url, spec, session=None, **kwargs):
             cb.record_failure(f"HTTP {status}")
         elif 200 <= status < 400:
             cb.record_success()
-        # 4xx кроме 429 — наша ошибка, breaker не трогаем.
+        else:
+            # 4xx кроме 429 — наша ошибка (неверный URL, нет
+            # прав). Сервер ответил, значит он жив: с точки
+            # зрения breaker это успех. Иначе half-open-пробный
+            # после 404/403 «зависнет» навсегда.
+            cb.record_success()
 
         return {"status": status, "body": resp.content,
                 "headers": headers, "error": None}
@@ -303,8 +310,9 @@ async def _fetch_http_async(url, spec, session=None, **kwargs):
     if wait > 0:
         await asyncio.sleep(min(wait, 30.0))
 
+    request_headers = dict(getattr(spec, "headers", None) or {})
     try:
-        async with session.get(url) as resp:
+        async with session.get(url, headers=request_headers or None) as resp:
             body = await resp.read()
             headers = dict(resp.headers)
             status = resp.status
@@ -317,6 +325,10 @@ async def _fetch_http_async(url, spec, session=None, **kwargs):
             elif 500 <= status < 600:
                 cb.record_failure(f"HTTP {status}")
             elif 200 <= status < 400:
+                cb.record_success()
+            else:
+                # 4xx кроме 429 — наша ошибка, сервер жив.
+                # См. комментарий в sync-версии.
                 cb.record_success()
 
             return {"status": status, "body": body,
@@ -829,15 +841,21 @@ async def _fetch_one_split(value, session, semaphore, spec, base_url):
             "[%s] собрано %d из %d — похоже, лимит пагинации достигнут даже для "
             "одного значения split.", label, len(rows), total)
         incomplete = True
-    return rows, incomplete, last_status
-
-
+    return rows, incomplete, last_status, total
 async def fetch_split_async(base_url, values, token, spec):
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+    # Явный connect + sock_read: если сервер открыл соединение и молчит —
+    # оборвём через sock_read секунд, а не будем висеть до total.
+    timeout = aiohttp.ClientTimeout(
+        total=REQUEST_TIMEOUT * 3,
+        connect=REQUEST_TIMEOUT,
+        sock_read=REQUEST_TIMEOUT,
+    )
     semaphore = asyncio.Semaphore(spec.concurrency)
     out, any_incomplete, done, failed, empty_ok, suspect = [], False, 0, 0, 0, 0
     status_counts = {}
+    _reported_total_sum = 0  # сумма total по всем split-значениям
+    _reported_total_n = 0    # сколько раз total пришёл
     total = len(values)
 
     print(f"  📡 [{spec.key}] дробление по {spec.split_param}: "
@@ -847,7 +865,9 @@ async def fetch_split_async(base_url, values, token, spec):
         tasks = [asyncio.create_task(
             _fetch_one_split(v, session, semaphore, spec, base_url)) for v in values]
         for coro in asyncio.as_completed(tasks):
-            rows, inc, status = await coro
+            rows, inc, status, _t = await coro
+            if _t is not None:
+                _reported_total_sum += _t
             out.extend(rows)
             any_incomplete |= inc
             done += 1
@@ -860,7 +880,7 @@ async def fetch_split_async(base_url, values, token, spec):
                     suspect += 1
                 else:
                     empty_ok += 1
-            if done % 5 == 0 or done == total:
+            if done % 1 == 0 or done == total:
                 print(f"\r  📡 [{spec.key}] {done}/{total} — записей: {len(out)}",
                       end="", flush=True)
     print()
@@ -882,7 +902,7 @@ async def fetch_split_async(base_url, values, token, spec):
                   f"\"concurrency\" у источника '{spec.key}' в sources/*.json "
                   f"(сейчас {spec.concurrency}).")
 
-    return out, any_incomplete, suspect
+    return out, any_incomplete, suspect, _reported_total_sum
 
 
 def probe_live_values(url, session, spec, parent=None, limit=3):
@@ -1225,9 +1245,10 @@ def collect_source(spec, session, token, params, collected):
             print(f"  ℹ️ [{spec.key}] используется split_url_template — "
                   f"пробные запросы пропущены")
         else:
-            total = probe_total(url, session, spec)
-            if total is not None:
-                print(f"  ℹ️ [{spec.key}] API заявляет всего: {total}")
+            # probe_total без фильтров для split-источника
+            # даёт total по всей стране — вводит в заблуждение.
+            # Настоящая сумма собирается в fetch_split_async.
+            total = None
 
             live = probe_live_values(url, session, spec, parent)
             sample = live[:3] or values[:min(5, len(values))]
@@ -1254,7 +1275,8 @@ def collect_source(spec, session, token, params, collected):
             if diag:
                 print(f"  ✅ [{spec.key}] предпроверка пройдена — {diag}")
 
-        rows, inc, suspect = asyncio.run(fetch_split_async(url, values, token, spec))
+        rows, inc, suspect, _reported_total_sum = asyncio.run(
+fetch_split_async(url, values, token, spec))
 
         # ДЕДУП: API отдаёт одну и ту же квартиру под разными каналами
         # (FSK / FSK_APP / DSK / DSK_ADVERTISE). В split-режиме каждая
@@ -1638,18 +1660,23 @@ def main():
     if args.list_sources:
         print(f"Зарегистрировано источников: {loaded + loaded_ext}\n")
         for s in src.all_sources():
-            tag = ""
+            tags = []
             if s.external:
-                tag = " [внешний]"
-            elif s.split_values_from:
-                tag = f"  ← дробится по {s.split_values_from}"
-            elif getattr(s, "fetch_mode", "http") == "browser":
-                tag = "  🌐 браузер"
+                tags.append("[внешний]")
+            if s.split_values_from:
+                tags.append(f"← дробится по {s.split_values_from}")
+            if getattr(s, "fetch_mode", "http") == "browser":
+                tags.append("🌐 браузер")
+            tag = ("  " + "  ".join(tags)) if tags else ""
             print(f"  • {s.key:20} {s.title or ''}{tag}")
-            try:
-                print(f"    {s.resolved_url(params)[:110]}")
-            except ValueError as e:
-                print(f"    ⚠️ {e}")
+            # Для split-источников показываем шаблон, а не url с {value}
+            if s.split_url_template:
+                print(f"    {s.split_url_template[:110]}")
+            else:
+                try:
+                    print(f"    {s.resolved_url(params)[:110]}")
+                except ValueError as e:
+                    print(f"    ⚠️ {e}")
         if _MISSING:
             print(f"\n⚠️ Для самого сбора не хватает: {', '.join(_MISSING)}")
         return 0
@@ -1676,9 +1703,11 @@ def main():
         print("🔓 Собираются только внешние источники — Redcat-токен не требуется.")
 
     redcat_session = requests.Session()
+    redcat_session.trust_env = False  # игнорировать HTTP_PROXY/HTTPS_PROXY
     redcat_session.headers.update({"Authorization": f"Bearer {token}",
                                    "Accept": "application/json"})
     external_session = requests.Session()
+    external_session.trust_env = False  # игнорировать HTTP_PROXY/HTTPS_PROXY
     external_session.headers.update({"Accept": "application/json"})
 
     timestamp = run_started_at.strftime("%Y%m%d_%H%M")

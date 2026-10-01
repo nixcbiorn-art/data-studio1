@@ -60,6 +60,11 @@ import dataops
 import completeness
 import field_labels
 import hc_aliases
+try:
+    from thresholds import percent_threshold as _pct_thr
+except ImportError:
+    def _pct_thr(size, base_pct=2.0, **kw):
+        return base_pct
 import name_normalizer
 import sources as src
 import spec_validator
@@ -916,6 +921,12 @@ def _cross_check_report(source_key: str) -> dict:
         # которой нет в фиде. Считаем только отрицательные отклонения.
         _asym_filter = (cc.get("asymmetric") == "source_higher")
         _effective_worst = worst
+        # Redcat — архив, источник — активное. Если у Redcat больше
+        # лотов и в спеке asymmetric_rows="redcat_higher" — не считать
+        # расхождение проблемой (разница объясняется проданными лотами).
+        _asym_rows = cc.get("asymmetric_rows")
+        if _asym_rows == "redcat_higher" and len(lg) > len(rg):
+            _effective_worst = 0.0
         if _asym_filter:
             # Берём модуль только отрицательных отклонений.
             _neg = [abs(m.get("diff_pct") or 0)
@@ -923,9 +934,18 @@ def _cross_check_report(source_key: str) -> dict:
                     if (m.get("diff_pct") or 0) < 0]
             _effective_worst = max(_neg) if _neg else 0.0
 
-        if _effective_worst >= t_warn:
+        # Плавающие пороги: для маленьких групп медиана
+        # нестабильна, порог классификации поднимаем.
+        _size = min(len(lg), len(rg))
+        t_ok_eff = max(t_ok, _pct_thr(_size, base_pct=t_ok,
+                                       max_multiplier=3.0,
+                                       scale=50.0))
+        t_warn_eff = max(t_warn, _pct_thr(_size, base_pct=t_warn,
+                                           max_multiplier=3.0,
+                                           scale=50.0))
+        if _effective_worst >= t_warn_eff:
             items_by_class["critical"].append(item)
-        elif _effective_worst >= t_ok:
+        elif _effective_worst >= t_ok_eff:
             items_by_class["warn"].append(item)
         else:
             items_by_class["ok"].append(item)
@@ -972,6 +992,30 @@ def _cross_check_report(source_key: str) -> dict:
 # ──────────────────────────────────────────────────────────────
 #  МАРШРУТИЗАЦИЯ
 # ──────────────────────────────────────────────────────────────
+# Хосты, на которые можно отправлять Redcat-токен.
+_REDCAT_HOSTS = ("redcat.ai",)
+
+
+def _is_redcat_host(url: str) -> bool:
+    """URL ведёт на *.redcat.ai (или сам redcat.ai)?"""
+    try:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return False
+        return any(host == h or host.endswith("." + h)
+                   for h in _REDCAT_HOSTS)
+    except Exception:
+        return False
+
+
+# Лимит размера тела запроса: пачка CSV из 1000 строк
+# укладывается с большим запасом, а 10-гигабайтный
+# запрос не займёт сервер навсегда.
+MAX_BODY_BYTES = 50 * 1024 * 1024   # 50 МБ
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "RedCatStudio"
 
@@ -1003,7 +1047,20 @@ class Handler(BaseHTTPRequestHandler):
         self._send({"error": str(message)}, status)
 
     def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length") or 0)
+        raw_length = self.headers.get("Content-Length") or 0
+        try:
+            length = int(raw_length)
+        except (TypeError, ValueError):
+            self._error("Некорректный Content-Length.", 400)
+            return {}
+        if length < 0:
+            self._error("Отрицательный Content-Length.", 400)
+            return {}
+        if length > MAX_BODY_BYTES:
+            self._error(
+                f"Слишком большой запрос: {length} байт. "
+                f"Лимит {MAX_BODY_BYTES // (1024 * 1024)} МБ.", 413)
+            return {}
         if not length:
             return {}
         try:
@@ -1011,8 +1068,31 @@ class Handler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
 
+    # ---------- защита локального сервера ----------
+    def _guard(self, is_post: bool) -> bool:
+        """Host + Origin + Content-Type. Возвращает False, если запрос отклонён."""
+        allowed = getattr(self.server, "allowed_hosts", None)
+        if allowed:
+            host = (self.headers.get("Host") or "").lower()
+            if host not in allowed:
+                self._error("Недопустимый Host.", 403)
+                return False
+            origin = (self.headers.get("Origin") or "").lower()
+            if origin and origin not in {f"http://{h}" for h in allowed}:
+                self._error("Недопустимый Origin.", 403)
+                return False
+        if is_post:
+            ctype = (self.headers.get("Content-Type") or "")
+            ctype = ctype.split(";")[0].strip().lower()
+            if ctype != "application/json":
+                self._error("Ожидается Content-Type: application/json.", 415)
+                return False
+        return True
+
     # ---------- GET ----------
     def do_GET(self):
+        if not self._guard(False):
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         params = urllib.parse.parse_qs(parsed.query)
@@ -1256,7 +1336,7 @@ class Handler(BaseHTTPRequestHandler):
                                "hint": hint})
 
         if route == "source":
-            name = one("file", "")
+            name = Path(one("file", "")).name
             for folder in (SOURCES_DIR, SOURCES_EXT_DIR):
                 path = folder / name
                 if path.is_file() and path.suffix == ".json":
@@ -1320,6 +1400,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- POST (LOCAL-ONLY: пишет только на ваш диск) ----------
     def do_POST(self):
+        if not self._guard(True):
+            return
         parsed = urllib.parse.urlparse(self.path)
         if not parsed.path.startswith("/api/"):
             return self._error("Только /api/*", 404)
@@ -1402,7 +1484,7 @@ class Handler(BaseHTTPRequestHandler):
                                "external": target_dir == SOURCES_EXT_DIR})
 
         if route == "source_save_raw":
-            name = b["file"]
+            name = Path(str(b["file"])).name
             if not name.endswith(".json"):
                 return self._error("Можно сохранять только *.json")
             if b.get("external"):
@@ -1417,10 +1499,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"ok": True})
 
         if route == "source_delete":
-            name = b["file"]
+            name = Path(str(b["file"])).name
+            if not name.endswith(".json"):
+                return self._error("Можно удалять только *.json")
             for folder in (SOURCES_DIR, SOURCES_EXT_DIR):
                 path = folder / name
-                if path.exists():
+                if path.is_file():
                     src.delete_source_file(path)
             return self._send({"ok": True})
 
@@ -1745,8 +1829,10 @@ class Handler(BaseHTTPRequestHandler):
                     "validation": validation}
 
         headers = {"Accept": "application/json"}
-        if token:
+        if token and _is_redcat_host(url):
             headers["Authorization"] = f"Bearer {token}"
+        elif token:
+            print(f"  🔒 Токен не отправлен: {url} — не redcat.ai")
         try:
             resp = requests.get(url, headers=headers, timeout=25)
         except Exception as e:  # noqa: BLE001
@@ -1822,8 +1908,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             import requests
             headers = {"Accept": "application/json"}
-            if token:
+            if token and _is_redcat_host(url):
                 headers["Authorization"] = f"Bearer {token}"
+            elif token:
+                print(f"  🔒 Токен не отправлен: {url} — не redcat.ai")
             try:
                 resp = requests.get(url, headers=headers, timeout=25)
             except Exception as e:  # noqa: BLE001
@@ -2020,6 +2108,7 @@ def serve(port=8765, open_browser=True):
     store.prune_api_log(STUDIO_DB)
     port = find_free_port(port)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     url = f"http://127.0.0.1:{port}/"
 
     print("=" * 60)
