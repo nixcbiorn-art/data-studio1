@@ -17,6 +17,7 @@ Python. Интернет требуется только самому сбору
 
 from __future__ import annotations
 
+from redcat.core import paths
 import argparse
 import sys
 
@@ -32,7 +33,7 @@ for _stream in (sys.stdout, sys.stderr):
             pass
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = paths.ROOT
 
 
 def main() -> int:
@@ -44,11 +45,11 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.demo and not (BASE_DIR / "reports" / "redcat_data.db").exists():
-        import demo_data
+        from redcat.tools import demo_data
         demo_data.build(force=False)
 
     try:
-        import webapp
+        from redcat.web import webapp
     except ImportError as e:
         print(f"❌ Не удалось загрузить приложение: {e}")
         print("   Проверьте, что все файлы лежат в одной папке.")

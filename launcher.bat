@@ -1,6 +1,6 @@
 @echo off
 cd /d %~dp0
-python launcher.py
+python -m redcat.tools.launcher
 if errorlevel 1 (
     echo.
     echo Не удалось запустить панель управления. Убедитесь, что Python установлен

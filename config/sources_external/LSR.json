@@ -1,0 +1,154 @@
+{
+  "key": "jcat_lsr_apartments_normalized",
+  "title": "JCat LSR — квартиры (Yandex Realty XML)",
+  "external": true,
+  "format": "xml",
+  "xml_record_tag": "offer",
+  "url": "https://xml.jcat.ru/f/yandexcommerce/24381f46/6878e75f5a0cd/",
+  "page_size": 50000,
+  "data_path": [
+    "items"
+  ],
+  "total_path": [
+    "total"
+  ],
+  "flatten_depth": 4,
+  "id_field": "external_id",
+  "name_field": "location.apartment",
+  "mapping": {
+    "external_id": "internal-id",
+    "apartment": "location.apartment",
+    "url": "url",
+    "category": "category",
+    "deal_type": "type",
+    "property_type": "property-type",
+    "price": "price.value",
+    "currency": "price.currency",
+    "discounted_price": "discount.final-price",
+    "discount_end_date": "discount.end-date",
+    "area": "area.value",
+    "area_unit": "area.unit",
+    "living_space": "living-space.value",
+    "kitchen_space": "kitchen-space.value",
+    "floor": "floor",
+    "floors_total": "floors-total",
+    "rooms": "rooms",
+    "renovation": "renovation",
+    "new_flat": "new-flat",
+    "building_name": "building-name",
+    "building_section": "building-section",
+    "building_type": "building-type",
+    "address": "location.address",
+    "locality": "location.locality-name",
+    "sub_locality": "location.district",
+    "country": "location.country",
+    "latitude": "location.latitude",
+    "longitude": "location.longitude",
+    "metro_name": "location.metro.name",
+    "metro_time": "location.metro.time-on-foot",
+    "deal_status": "deal-status",
+    "built_year": "built-year",
+    "ready_quarter": "ready-quarter",
+    "building_state": "building-state",
+    "ceiling_height": "ceiling-height",
+    "yandex_building_id": "yandex-building-id",
+    "yandex_house_id": "yandex-house-id",
+    "creation_date": "creation-date",
+    "last_update_date": "last-update-date",
+    "expire_date": "expire-date",
+    "manually_added": "manually-added",
+    "mortgage": "mortgage",
+    "haggle": "haggle",
+    "sales_agent_name": "sales-agent.name",
+    "sales_agent_phone": "sales-agent.phone",
+    "sales_agent_category": "sales-agent.category",
+    "sales_agent_organization": "sales-agent.organization",
+    "sales_agent_email": "sales-agent.email",
+    "description": "description"
+  },
+  "numeric_fields": [
+    "price",
+    "discounted_price",
+    "area",
+    "living_space",
+    "kitchen_space",
+    "floor",
+    "floors_total",
+    "rooms",
+    "metro_time",
+    "built_year",
+    "ready_quarter",
+    "ceiling_height",
+    "latitude",
+    "longitude",
+    "yandex_building_id",
+    "yandex_house_id"
+  ],
+  "group_fields": [
+    "building_name",
+    "building_section",
+    "rooms",
+    "renovation",
+    "deal_type",
+    "property_type",
+    "category",
+    "building_state",
+    "ready_quarter",
+    "built_year"
+  ],
+  "track_fields": [
+    "price",
+    "discounted_price",
+    "deal_status",
+    "last_update_date",
+    "expire_date"
+  ],
+  "positive_fields": [
+    "price",
+    "discounted_price",
+    "area",
+    "living_space",
+    "kitchen_space",
+    "ceiling_height"
+  ],
+  "required_fields": [
+    "external_id",
+    "price",
+    "area"
+  ],
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "building_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "discounted_price": "price",
+      "area": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "min_group_size": 10,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "ЛСР"
+      },
+      {
+        "field": "object_type",
+        "op": "eq",
+        "value": "Квартира"
+      }
+    ],
+    "filter_left": [
+      {
+        "field": "category",
+        "op": "eq",
+        "value": "квартира"
+      }
+    ]
+  }
+}

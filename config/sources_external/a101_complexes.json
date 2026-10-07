@@ -1,0 +1,21 @@
+{
+  "key": "a101_complexes",
+  "title": "А101 — справочник ЖК",
+  "external": true,
+  "url": "https://a101.ru/api/flats/?order=actual_price&limit=100",
+  "page_size": 100,
+  "page_size_param": "limit",
+  "page_number_param": "offset",
+  "next_link_path": ["next"],
+  "data_path": ["results"],
+  "total_path": ["count"],
+  "preprocess": "a101_unique_projects",
+  "id_field": "slug",
+  "name_field": "title",
+  "mapping": {
+    "slug": "slug",
+    "title": "title",
+    "commercial": "commercial"
+  },
+  "required_fields": ["slug"]
+}

@@ -1,0 +1,54 @@
+# ── Секреты ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Локальные данные пользователя ────────────────────────
+studio.db
+studio.db-wal
+studio.db-shm
+
+# ── Собранные данные и выгрузки ──────────────────────────
+reports/
+!reports/.gitkeep
+
+history/
+!history/.gitkeep
+
+# ── Профили браузера (cookies, localStorage, кэш) ────────
+browser_profiles/
+
+# ── Логи ─────────────────────────────────────────────────
+*.log
+run_log.txt
+
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ── Резервные копии ──────────────────────────────────────
+*.bak
+*.bak*
+*.backup
+
+# ── Редакторы и ОС ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

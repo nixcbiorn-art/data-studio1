@@ -1,0 +1,131 @@
+{
+  "key": "fsk_apartments",
+  "title": "ФСК/ДСК — квартиры",
+  "external": true,
+  "url": "https://fsk.ru/api/v3/flats?city=1&client=FSK,DSK&sort=price&order=1",
+  "page_size": 100,
+  "page_size_param": "limit",
+  "page_number_param": "page",
+  "data_path": [
+    "items"
+  ],
+  "split_param": "project_slug",
+  "split_values_from": "fsk_complexes",
+  "split_values_field": "slug",
+  "concurrency": 3,
+  "flatten_depth": 1,
+  "id_field": "external_id",
+  "name_field": "number",
+  "mapping": {
+    "external_id": "externalId",
+    "number": "number",
+    "kind": "kind",
+    "crm_type": "crmObjectType",
+    "rooms": "rooms",
+    "floor": "floorNumber",
+    "number_on_floor": "numberOnFloor",
+    "bathrooms": "bathrooms",
+    "ceiling_height": "ceilingHeight",
+    "finishing": "finishing",
+    "furniture": "furniture",
+    "status": "status",
+    "price": "price",
+    "price_wo_discount": "priceWoDiscount",
+    "discount_pct": "discount",
+    "price_per_sqm": "pricePerMeter",
+    "price_on_request": "priceOnRequest",
+    "mortgage_payment": "mortgagePayment",
+    "mortgage_rate": "mortgageRate",
+    "area_total": "areaTotal",
+    "area_living": "areaLiving",
+    "area_kitchen": "areaKitchen",
+    "complex_name": "project.title",
+    "complex_slug": "project.slug",
+    "complex_class": "project.complexClass",
+    "corpus_number": "corpus.number",
+    "delivery_date": "corpus.dateDelivery",
+    "section_number": "section.number",
+    "floors_in_section": "section.floorsCount",
+    "plan_url": "plan",
+    "plan_furniture_url": "planFurniture",
+    "labels": "labels",
+    "booking_pair": "bookingPair",
+    "booking_user": "bookingUser",
+    "crm_category": "crmCategory"
+  },
+  "derived": {
+    "price_per_sqm_calc": "price / areaTotal"
+  },
+  "numeric_fields": [
+    "price",
+    "price_wo_discount",
+    "price_per_sqm",
+    "price_per_sqm_calc",
+    "discount_pct",
+    "area_total",
+    "area_living",
+    "area_kitchen",
+    "floor",
+    "rooms",
+    "bathrooms",
+    "ceiling_height",
+    "mortgage_payment",
+    "mortgage_rate",
+    "crm_category"
+  ],
+  "group_fields": [
+    "complex_name",
+    "rooms",
+    "finishing",
+    "kind"
+  ],
+  "track_fields": [
+    "price",
+    "status",
+    "finishing",
+    "price_on_request"
+  ],
+  "positive_fields": [
+    "price",
+    "area_total"
+  ],
+  "required_fields": [
+    "external_id",
+    "price",
+    "area_total"
+  ],
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "complex_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "price": "price",
+      "area_total": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "min_group_size": 10,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "dedup_by": "external_id",
+    "filter_left": [],
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "ФСК"
+      },
+      {
+        "field": "object_type",
+        "op": "in",
+        "values": [
+          "Квартира",
+          "Апартамент",
+          "Таунхаус"
+        ]
+      }
+    ]
+  }
+}

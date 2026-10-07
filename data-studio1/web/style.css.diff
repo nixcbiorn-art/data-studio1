@@ -1,0 +1,37 @@
+--- orig/redcat_scraper/web/style.css	2026-09-21 06:18:00.000000000 +0000
++++ redcat_scraper/redcat_scraper/web/style.css	2026-09-22 06:31:06.091538281 +0000
+@@ -166,8 +166,34 @@
+ .bar-row { display: grid; grid-template-columns: minmax(120px, 230px) 1fr auto; gap: 10px; align-items: center; margin-bottom: 5px; font-size: 12.5px; }
+ .bar-track { background: var(--bg); border-radius: 4px; height: 17px; overflow: hidden; }
+ .bar-fill { background: linear-gradient(90deg, var(--accent), #7aa8ff); height: 100%; border-radius: 4px; }
++.bar-fill.neg { background: linear-gradient(90deg, #ff8189, var(--crit)); }
+ .bar-val { font-family: var(--mono); font-size: 12px; text-align: right; min-width: 78px; }
+ 
++/* ---------- box-plot (сводка по группам) ---------- */
++.box-row { display: grid; grid-template-columns: minmax(120px, 230px) 1fr auto; gap: 10px; align-items: center; margin-bottom: 7px; font-size: 12.5px; }
++.box-track { position: relative; height: 22px; background: var(--bg); border-radius: 4px; }
++.box-whisker { position: absolute; top: 50%; height: 1px; background: var(--muted); transform: translateY(-50%); }
++.box-whisker::before, .box-whisker::after {
++  content: ""; position: absolute; top: 50%; width: 1px; height: 9px;
++  background: var(--muted); transform: translateY(-50%);
++}
++.box-whisker::before { left: 0; } .box-whisker::after { right: 0; }
++.box-body { position: absolute; top: 3px; bottom: 3px; background: rgba(79,140,255,.32);
++  border: 1px solid var(--accent); border-radius: 3px; }
++.box-median { position: absolute; top: 1px; bottom: 1px; width: 2px; background: #fff; }
++.box-val { font-family: var(--mono); font-size: 12px; text-align: right; min-width: 92px; }
++.box-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin: 2px 0 12px; }
++.box-legend b { color: var(--text); font-weight: 500; }
++
++/* ---------- тепловая карта (таблица × таблица) ---------- */
++table.heat td.heat-cell { text-align: center; font-family: var(--mono); }
++table.heat td.heat-cell.empty-cell { color: var(--muted); }
++
++/* ---------- полоса выбросов ---------- */
++.zstrip-wrap { background: var(--bg); border-radius: var(--radius); padding: 4px 0 0; }
++.zstrip-legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
++.zstrip-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
++
+ /* ---------- боковая панель записи ---------- */
+ #drawer {
+   position: fixed; top: 0; right: 0; width: 430px; max-width: 94vw; height: 100vh;

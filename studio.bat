@@ -18,7 +18,7 @@ if errorlevel 1 (
     echo.
     echo Что проверить:
     echo   1^) установлен ли Python — команда:  python --version
-    echo   2^) лежат ли рядом файлы studio.py, webapp.py и папка web
+    echo   2^) лежат ли рядом файлы studio.py и папка redcat
     echo.
     echo Приложению не нужны дополнительные библиотеки — только сам Python.
     echo ----------------------------------------------------------------

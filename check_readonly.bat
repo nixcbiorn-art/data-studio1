@@ -3,7 +3,7 @@ chcp 65001 >nul
 cd /d %~dp0
 title Проверка режима «только чтение»
 
-python selftest_readonly.py
+python -m redcat.tools.selftest_readonly
 
 echo.
 echo Нажмите любую клавишу, чтобы закрыть окно.

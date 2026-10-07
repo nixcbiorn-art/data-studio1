@@ -13,9 +13,9 @@ REM Если используете виртуальное окружение ve
 REM call venv\Scripts\activate.bat
 
 if "%~1"=="" (
-    python redcat_scraper.py >> run_log.txt 2>&1
+    python -m redcat.collection.redcat_scraper >> run_log.txt 2>&1
 ) else (
-    python redcat_scraper.py --token "%~1" >> run_log.txt 2>&1
+    python -m redcat.collection.redcat_scraper --token "%~1" >> run_log.txt 2>&1
 )
 
 echo %date% %time% - завершено с кодом %ERRORLEVEL% >> run_log.txt
