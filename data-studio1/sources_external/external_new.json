@@ -1,0 +1,227 @@
+[
+  {
+    "key": "mr_objects_list",
+    "title": "MR Group — список лотов",
+    "external": true,
+    "url": "https://www.mr-group.ru/api/realty/objects?category=flats",
+    "page_size": 100,
+    "page_size_param": "limit",
+    "page_number_param": "page",
+    "data_path": [
+      "items"
+    ],
+    "id_field": "id",
+    "name_field": "name",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+      "Referer": "https://www.mr-group.ru/realty/"
+    },
+    "mapping": {
+      "id": "id",
+      "code": "code",
+      "name": "name",
+      "number": "number",
+      "rooms_number": "rooms_number",
+      "floor": "floor",
+      "area": "area",
+      "price": "price",
+      "meter_price": "meter_price",
+      "status": "status.name",
+      "decoration": "decoration.name",
+      "project_code": "project.code",
+      "project_name": "project.name",
+      "building_code": "building.code",
+      "building_name": "building.name",
+      "deadline": "building.deadline",
+      "category_code": "category.code",
+      "price_base": "price_base",
+      "meter_price_base": "meter_price_base"
+    },
+    "numeric_fields": [
+      "area",
+      "floor",
+      "price",
+      "meter_price",
+      "rooms_number",
+      "price_base",
+      "meter_price_base"
+    ],
+    "group_fields": [
+      "project_code",
+      "building_code",
+      "status"
+    ],
+    "track_fields": [
+      "price",
+      "area",
+      "status"
+    ],
+    "positive_fields": [
+      "price",
+      "area"
+    ],
+    "required_fields": [
+      "id",
+      "code"
+    ],
+    "pagination_strategy": "page_number",
+    "parse_strategy": "json_path",
+    "cross_check": {
+      "with_table": "apartments",
+      "on_left": "project_name",
+      "on_right": "housing_complex_name",
+      "metrics": {
+        "price": "price",
+        "area": "total_area"
+      },
+      "agg": "median",
+      "normalize_key": true,
+      "filter_right": {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "MR"
+      },
+      "min_group_size": 5,
+      "thresholds": {
+        "ok": 10,
+        "warn": 20
+      },
+      "asymmetric_rows": "redcat_higher"
+    },
+    "preprocess": "mr_flats"
+  },
+  {
+    "key": "mr_projects",
+    "title": "MR Group — справочник ЖК",
+    "external": true,
+    "url": "https://www.mr-group.ru/api/ui/navigation/projects",
+    "data_path": [
+      "items"
+    ],
+    "id_field": "id",
+    "name_field": "name",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Referer": "https://www.mr-group.ru/"
+    },
+    "mapping": {
+      "id": "id",
+      "code": "code",
+      "name": "name",
+      "title": "title",
+      "brandbook": "brandbook",
+      "business_unit": "business_unit",
+      "metro_name": "metro.name",
+      "metro_color": "metro.color",
+      "metro_distance": "metro_distance",
+      "is_premium": "is_premium",
+      "is_private": "is_private",
+      "is_countryside": "is_countryside"
+    },
+    "numeric_fields": [
+      "metro_distance"
+    ],
+    "group_fields": [
+      "brandbook",
+      "business_unit"
+    ],
+    "track_fields": [
+      "name",
+      "title",
+      "metro_distance"
+    ],
+    "required_fields": [
+      "id",
+      "code",
+      "name"
+    ],
+    "cross_check": {
+      "with_table": "housing_complexes",
+      "on_left": "name",
+      "on_right": "name",
+      "metrics": {
+        "metro_distance": "metro_distance"
+      },
+      "agg": "median",
+      "normalize_key": true,
+      "filter_right": {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "MR"
+      },
+      "thresholds": {
+        "ok": 10,
+        "warn": 20
+      }
+    }
+  },
+  {
+    "key": "mr_object",
+    "title": "MR Group — карточка лота",
+    "external": true,
+    "url": "https://www.mr-group.ru/api/realty/objects/{value}",
+    "split_url_template": "https://www.mr-group.ru/api/realty/objects/{value}",
+    "split_param": "",
+    "split_values_from": "mr_objects_list",
+    "split_values_field": "code",
+    "concurrency": 4,
+    "page_size_param": "",
+    "page_number_param": "",
+    "data_path": [
+      "product"
+    ],
+    "id_field": "id",
+    "name_field": "name",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+      "Referer": "https://www.mr-group.ru/realty/"
+    },
+    "mapping": {
+      "id": "id",
+      "code": "code",
+      "number": "number",
+      "floor": "floor",
+      "rooms_number": "rooms_number",
+      "area": "area",
+      "price": "price",
+      "meter_price": "meter_price",
+      "ceiling_height": "ceiling_height",
+      "status": "status.name",
+      "decoration": "decoration.name",
+      "project_code": "project.code",
+      "project_name": "project.name",
+      "building_code": "building.code",
+      "building_name": "building.name",
+      "deadline": "building.deadline",
+      "category_code": "category.code"
+    },
+    "numeric_fields": [
+      "area",
+      "floor",
+      "price",
+      "meter_price",
+      "ceiling_height"
+    ],
+    "group_fields": [
+      "project_code",
+      "building_code",
+      "status"
+    ],
+    "track_fields": [
+      "price",
+      "area",
+      "status"
+    ],
+    "required_fields": [
+      "id",
+      "code"
+    ],
+    "pagination_strategy": "stop",
+    "parse_strategy": "json_path"
+  }
+]

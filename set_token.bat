@@ -1,4 +1,4 @@
 @echo off
 cd /d %~dp0
-python set_token.py
+python -m redcat.tools.set_token
 pause

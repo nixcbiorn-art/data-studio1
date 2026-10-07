@@ -1,0 +1,279 @@
+{
+  "_comment": "Семантический словарь полей. Правьте свободно. value_range — ожидаемый диапазон числовых значений (широкий: нужен только чтобы отсечь очевидные «id вместо цены»). Роли: id_field/name_field/numeric/positive/required/track/group/date/ignore.",
+
+  "categories": {
+    "id": {
+      "note": "Первичный ключ записи",
+      "priority": 100,
+      "roles": ["id_field", "required"],
+      "canonical": ["id", "_id", "uuid", "guid", "uid", "pk", "key",
+                    "ид", "идентификатор"],
+      "value_hint": null
+    },
+    "name": {
+      "note": "Человекочитаемое название самой записи",
+      "priority": 95,
+      "roles": ["name_field", "required", "track"],
+      "canonical": ["name", "title", "label", "caption", "heading",
+                    "summary", "название", "наименование", "заголовок",
+                    "имя", "short_name", "title.short"],
+      "value_hint": null
+    },
+    "price": {
+      "note": "Цена или стоимость",
+      "priority": 90,
+      "roles": ["numeric", "positive", "required", "track"],
+      "canonical": ["price", "cost", "amount", "sum", "value",
+                    "total_price", "base_price", "list_price",
+                    "final_price", "sale_price", "цена", "стоимость",
+                    "сумма", "прайс", "price_rub", "price_rur",
+                    "price.value", "price.amount", "flat_price",
+                    "цена_предложения"],
+      "value_hint": null,
+      "value_range": [1000, 100000000000]
+    },
+    "price_per_unit": {
+      "note": "Цена за единицу (м², комнату, лот)",
+      "priority": 88,
+      "roles": ["numeric", "positive", "track"],
+      "canonical": ["price_per_sqm", "price_per_m2", "price_sqm",
+                    "sqm_price", "price_per_room", "price_per_unit",
+                    "цена_за_м2", "цена_кв_м", "цена_за_метр"],
+      "value_hint": null,
+      "value_range": [1, 100000000]
+    },
+    "area": {
+      "note": "Площадь (общая, жилая, кухни и т.п.)",
+      "priority": 85,
+      "roles": ["numeric", "positive", "track"],
+      "canonical": ["area", "total_area", "living_area", "kitchen_area",
+                    "square", "sqm", "square_meters", "area_total",
+                    "area_living", "площадь", "площадь_общая", "метраж",
+                    "area.value", "area.total"],
+      "value_hint": null,
+      "value_range": [1, 10000]
+    },
+    "floor": {
+      "note": "Этаж",
+      "priority": 80,
+      "roles": ["numeric", "group"],
+      "canonical": ["floor", "level", "storey", "etazh", "этаж",
+                    "floor_number", "floor.value"],
+      "value_hint": null,
+      "value_range": [0, 200]
+    },
+    "floors_total": {
+      "note": "Этажей в доме",
+      "priority": 75,
+      "roles": ["numeric"],
+      "canonical": ["floors_total", "total_floors", "floors_count",
+                    "max_floor", "house_floors", "этажей_в_доме",
+                    "этажность"],
+      "value_hint": null,
+      "value_range": [0, 200]
+    },
+    "rooms": {
+      "note": "Количество комнат",
+      "priority": 80,
+      "roles": ["numeric", "group"],
+      "canonical": ["rooms", "rooms_count", "room_count", "bedrooms",
+                    "room_number", "комнат", "комнаты", "спальни",
+                    "rooms.value"],
+      "value_hint": null,
+      "value_range": [0, 30]
+    },
+    "count": {
+      "note": "Количество чего-то в записи",
+      "priority": 55,
+      "roles": ["numeric"],
+      "canonical": ["count", "quantity", "qty", "number_of", "amount_of",
+                    "buildings_count", "apartments_count", "total_count",
+                    "количество", "штук"],
+      "value_hint": null,
+      "value_range": [0, 100000000]
+    },
+    "percent": {
+      "note": "Процент / ставка",
+      "priority": 75,
+      "roles": ["numeric"],
+      "canonical": ["percent", "pct", "rate", "percentage", "commission",
+                    "commission_percent", "min_percent", "max_percent",
+                    "процент", "ставка", "комиссия"],
+      "value_hint": null,
+      "value_range": [0, 1000]
+    },
+    "term": {
+      "note": "Срок в месяцах / днях",
+      "priority": 60,
+      "roles": ["numeric"],
+      "canonical": ["term", "payment_term", "duration", "months", "days",
+                    "period", "срок", "период", "длительность"],
+      "value_hint": null,
+      "value_range": [0, 10000]
+    },
+    "date": {
+      "note": "Дата (любая осмысленная)",
+      "priority": 80,
+      "roles": ["date", "track"],
+      "canonical": ["date", "created_at", "updated_at", "date_from",
+                    "date_to", "start_date", "end_date", "deadline",
+                    "delivery_date", "sales_start", "published_at",
+                    "дата", "срок_сдачи", "начало", "конец", "дата_обновления"],
+      "value_hint": "^\\d{4}-\\d{2}-\\d{2}|^\\d{2}\\.\\d{2}\\.\\d{4}|^\\d{2}/\\d{2}/\\d{4}"
+    },
+    "status": {
+      "note": "Статус / состояние",
+      "priority": 70,
+      "roles": ["group", "track"],
+      "canonical": ["status", "state", "stage", "status_name",
+                    "status.id", "статус", "состояние"],
+      "value_hint": null
+    },
+    "type": {
+      "note": "Тип / категория объекта",
+      "priority": 70,
+      "roles": ["group", "track"],
+      "canonical": ["type", "kind", "category", "object_type",
+                    "object_type.name", "type_name", "type.id",
+                    "apartment_type.name", "тип", "категория"],
+      "value_hint": null
+    },
+    "decoration": {
+      "note": "Тип отделки",
+      "priority": 65,
+      "roles": ["group", "track"],
+      "canonical": ["decoration", "decoration_type", "finishing",
+                    "finish", "finishing_type", "отделка", "тип_отделки"],
+      "value_hint": null
+    },
+    "developer": {
+      "note": "Застройщик",
+      "priority": 75,
+      "roles": ["group", "track"],
+      "canonical": ["developer", "developer_name", "developer.name",
+                    "builder", "builder_name", "застройщик"],
+      "value_hint": null
+    },
+    "complex": {
+      "note": "ЖК / проект",
+      "priority": 75,
+      "roles": ["group"],
+      "canonical": ["housing_complex", "housing_complex_name",
+                    "housing_complex.name", "complex", "complex_name",
+                    "project", "project_name", "project.slug",
+                    "жк", "жилой_комплекс"],
+      "value_hint": null
+    },
+    "district": {
+      "note": "Район / округ",
+      "priority": 60,
+      "roles": ["group"],
+      "canonical": ["district", "district_name", "region", "area",
+                    "municipality", "район", "округ", "регион"],
+      "value_hint": null
+    },
+    "address": {
+      "note": "Адрес",
+      "priority": 55,
+      "roles": ["track"],
+      "canonical": ["address", "location", "full_address", "addr",
+                    "street", "адрес", "улица"],
+      "value_hint": null
+    },
+    "url": {
+      "note": "URL / ссылка",
+      "priority": 30,
+      "roles": [],
+      "canonical": ["url", "link", "href", "uri", "permalink",
+                    "ссылка", "url_slug"],
+      "value_hint": "^https?://"
+    },
+    "phone": {
+      "note": "Телефон",
+      "priority": 30,
+      "roles": [],
+      "canonical": ["phone", "phone_number", "tel", "telephone",
+                    "мобильный", "телефон"],
+      "value_hint": "^\\+?[\\d\\s\\-()]{7,}$"
+    },
+    "email": {
+      "note": "E-mail",
+      "priority": 30,
+      "roles": [],
+      "canonical": ["email", "mail", "e_mail", "почта"],
+      "value_hint": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+    },
+    "description": {
+      "note": "Описание / текст",
+      "priority": 25,
+      "roles": [],
+      "canonical": ["description", "desc", "text", "body", "content",
+                    "comment", "note", "описание", "комментарий",
+                    "примечание"],
+      "value_hint": null
+    },
+    "flag": {
+      "note": "Флаг true/false",
+      "priority": 40,
+      "roles": ["track"],
+      "canonical": ["active", "is_active", "enabled", "visible",
+                    "published", "approved", "featured", "is_new",
+                    "флаг", "активен", "опубликован"],
+      "value_hint": null
+    },
+    "foreign_id": {
+      "note": "Внешний ключ на другую сущность",
+      "priority": 50,
+      "roles": ["track"],
+      "canonical": ["housing_complex_id", "developer_id", "provider_id",
+                    "estate_id", "region_id", "country_id", "parent_id",
+                    "owner_id", "category_id", "type_id", "status_id"],
+      "value_hint": null
+    },
+    "technical": {
+      "note": "Служебные поля (пагинация, метаданные) — не попадают ни в один из списков spec",
+      "priority": 5,
+      "roles": ["ignore"],
+      "canonical": ["_links", "_embedded", "_meta", "_source", "_score",
+                    "_index", "_highlight", "@context", "@type", "@id",
+                    "@graph", "jsonapi", "relationships", "included",
+                    "has_next", "has_next_page", "has_prev", "has_previous",
+                    "total_pages", "total_pages_count", "current_page",
+                    "per_page"],
+      "value_hint": null
+    }
+  },
+
+  "_derived_rules": [
+    {
+      "name": "price_per_sqm",
+      "needs": ["price", "area"],
+      "formula": "{price} / {area}"
+    },
+    {
+      "name": "price_per_room",
+      "needs": ["price", "rooms"],
+      "formula": "{price} / {rooms}"
+    },
+    {
+      "name": "price_with_discount",
+      "needs": ["price", "percent"],
+      "formula": "{price} * (1 - {percent} / 100)"
+    },
+    {
+      "name": "floor_ratio",
+      "needs": ["floor", "floors_total"],
+      "formula": "{floor} / {floors_total}"
+    }
+  ],
+
+  "_checks_rules": [
+    {"field": "price",         "test": "positive",  "advice": "Цена должна быть больше нуля"},
+    {"field": "area",          "test": "range",     "min": 5, "max": 500, "advice": "Площадь квартиры в м² — разумный диапазон 5–500"},
+    {"field": "floor",         "test": "positive",  "advice": "Этаж должен быть больше нуля"},
+    {"field": "floors_total",  "test": "positive",  "advice": "Этажей в доме должно быть больше нуля"},
+    {"field": "floor",         "test": "lte_field", "ref": "floors_total", "advice": "Этаж не может быть больше этажей в доме"},
+    {"field": "percent",       "test": "range",     "min": 0, "max": 100, "advice": "Проценты в диапазоне 0–100"},
+    {"field": "rooms",         "test": "range",     "min": 0, "max": 20, "advice": "Комнат обычно 0–20"}
+  ]
+}

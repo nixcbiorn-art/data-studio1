@@ -1,0 +1,4 @@
+{
+  "_comment": "Соответствия названий ЖК между источниками. Ключ и значение нормализованы (name_normalizer.normalize). Заполнить автоматически: python match_complex_names.py --write",
+  "aliases": {}
+}

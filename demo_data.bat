@@ -11,7 +11,7 @@ echo   ВНИМАНИЕ: данные вымышленные, для вывод�
 echo   Они перезапишутся при первом настоящем сборе.
 echo.
 
-python demo_data.py %*
+python -m redcat.tools.demo_data %*
 
 echo.
 echo Готово. Теперь запустите studio.bat

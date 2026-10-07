@@ -1,0 +1,155 @@
+{
+  "key": "samolet_apartments",
+  "title": "Самолёт — квартиры",
+  "external": true,
+  "fetch_mode": "browser",
+  "browser_wait_for": "",
+  "browser_wait_ms": 8000,
+  "browser_headless": false,
+  "url": "https://samolet.ru/backend/api/v3/flats/?nameType=sale&free=1&type=100000000&show_sold_buildings=false",
+  "page_size": 36,
+  "page_size_param": "limit",
+  "page_number_param": "offset",
+  "data_path": [
+    "results"
+  ],
+  "total_path": [
+    "count"
+  ],
+  "id_field": "id",
+  "name_field": "number",
+  "flatten_depth": 2,
+  "mapping": {
+    "id": "id",
+    "number": "number",
+    "article": "article",
+    "crm_id": "crm_id",
+    "realty_class": "realty_class",
+    "deal_type": "deal_type",
+    "status": "status",
+    "url": "url",
+    "post_address": "post_address",
+    "plan_type": "plan.plan_type",
+    "plan_url": "plan.plan",
+    "plan_3d": "plan.plan_3d",
+    "plan_furniture_url": "plan.plan_with_furniture",
+    "floor_plan_url": "plan.floor_plan",
+    "building_id": "building.id",
+    "building_number": "building.number",
+    "section": "building.section",
+    "floors_total": "building.total_floors",
+    "floor": "building.floor_number",
+    "settling_date": "building.settling_date",
+    "delivery_date": "building.estimated_settling_date",
+    "is_settled": "building.is_settled",
+    "price": "price.price",
+    "price_old": "price.old_price",
+    "discount_pct": "price.discount",
+    "rent_price": "price.rent_price",
+    "price_per_sqm": "price.price_m2",
+    "layout_id": "layout.layout_id",
+    "layout_name": "layout.name",
+    "area_total": "layout.area",
+    "area_living": "layout.living_area",
+    "rooms": "layout.rooms",
+    "project_id": "project.id",
+    "project_crm_id": "project.crm_id",
+    "complex_name": "project.name",
+    "mortgage_term": "mortgage.term",
+    "mortgage_rate": "mortgage.rate",
+    "mortgage_payment": "mortgage.payment",
+    "mortgage_dynamic_rate": "mortgage.dynamic_rate",
+    "mortgage_dynamic_payment": "mortgage.dynamic_payment",
+    "is_auction": "is_auction",
+    "has_no_decoration": "renovations.has_no_decoration",
+    "has_pre_finish_decoration": "renovations.has_pre_finish_decoration",
+    "has_standard_decoration": "renovations.has_standard_decoration",
+    "has_upgraded_decoration": "renovations.has_upgraded_decoration",
+    "has_furniture": "tags.has_furniture",
+    "has_kitchen": "tags.has_kitchen",
+    "has_smart": "tags.has_smart",
+    "has_glass_balcony": "tags.has_glass_balcony",
+    "has_loggias": "tags.has_loggias",
+    "has_terrace": "tags.has_terrace",
+    "has_two_bathrooms": "tags.has_two_bathrooms",
+    "has_panoramic_window": "tags.has_panoramic_window",
+    "is_penthouse": "tags.is_penthouse",
+    "is_duplex": "tags.is_duplex",
+    "euro": "tags.euro",
+    "is_favorite": "user_info.is_favorite",
+    "is_hidden": "user_info.is_hidden",
+    "is_booking_available": "user_info.is_booking_available"
+  },
+  "derived": {
+    "price_per_sqm_calc": "price / area_total"
+  },
+  "numeric_fields": [
+    "price",
+    "price_old",
+    "price_per_sqm",
+    "price_per_sqm_calc",
+    "discount_pct",
+    "area_total",
+    "area_living",
+    "floor",
+    "floors_total",
+    "rooms",
+    "mortgage_payment",
+    "mortgage_rate",
+    "mortgage_term",
+    "rent_price"
+  ],
+  "group_fields": [
+    "complex_name",
+    "rooms",
+    "realty_class",
+    "status"
+  ],
+  "track_fields": [
+    "price",
+    "status",
+    "price_old",
+    "discount_pct"
+  ],
+  "positive_fields": [
+    "price",
+    "area_total"
+  ],
+  "required_fields": [
+    "id",
+    "price",
+    "area_total"
+  ],
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "complex_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "price": "price",
+      "area_total": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "min_group_size": 10,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "Самолет"
+      },
+      {
+        "field": "object_type",
+        "op": "in",
+        "values": [
+          "Квартира",
+          "Апартамент",
+          "Таунхаус"
+        ]
+      }
+    ]
+  }
+}
