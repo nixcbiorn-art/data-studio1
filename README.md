@@ -16,8 +16,15 @@
 **до открытия сетевого соединения** — запрос не уходит в сеть вообще.
 Под блокировкой находятся и сборщик, и приложение, и запуски по расписанию.
 
+Границы блокировки — честно: она насаждается ровно в этих двух библиотеках,
+а не во всём Python. Единственное место в проекте, где POST уходит мимо
+`api_guard` и мимо журнала, — `web_mail_notify.py` (`urllib.request`):
+уведомления о новых письмах в ваш собственный Telegram-чат, тот же сервис и
+то же исключение, что в allowlist guard'а. В API источников приложение не
+пишет ни одним путём — наружу от них уходят только GET.
+
 Проверить самому — двойной клик по **`check_readonly.bat`** (или
-`python selftest_readonly.py`). Скрипт пытается отправить PUT, POST, PATCH и
+`python -m redcat.tools.selftest_readonly`). Скрипт пытается отправить PUT, POST, PATCH и
 DELETE всеми способами, которыми это вообще делается в проекте, и показывает,
 что каждый из них заблокирован:
 
@@ -59,7 +66,8 @@ CSV/JSON — его можно передать тому, кто вносит и
 данные.
 
 Не Windows? Те же команды без `.bat`:
-`python demo_data.py`, `python studio.py`, `python selftest_readonly.py`.
+`python -m redcat.tools.demo_data`, `python studio.py`,
+`python -m redcat.tools.selftest_readonly`.
 
 ---
 
@@ -179,7 +187,7 @@ KPI по последнему запуску с дельтой к предыду
 **Первое, что стоит запустить:**
 
 ```
-python redcat_scraper.py --diagnose
+python -m redcat.collection.redcat_scraper --diagnose
 ```
 
 Проверка идёт по реальным запросам, но дёшево — несколько GET-ов на
@@ -295,12 +303,12 @@ python redcat_scraper.py --diagnose
 Берётся из `.env` рядом с приложением либо передаётся разово:
 
 ```
-python redcat_scraper.py --token "eyJ...ваш_токен"
+python -m redcat.collection.redcat_scraper --token "eyJ...ваш_токен"
 ```
 
 Разовый токен нигде не сохраняется. Если указаны и `--token`, и `.env` —
 приоритет у `--token`. Обновить токен в `.env` можно из приложения (вкладка
-«Сбор»), из панели `launcher.bat` или командой `python set_token.py "..."`.
+«Сбор»), из панели `launcher.bat` или командой `python -m redcat.tools.set_token`.
 
 Срок действия проверяется **до** похода в API, по полю `exp` внутри JWT:
 истёкший токен даёт понятную ошибку сразу, а не HTTP 401 на сотом запросе.
@@ -315,7 +323,7 @@ python redcat_scraper.py --token "eyJ...ваш_токен"
 
 Через Планировщик заданий Windows.
 
-1. Убедитесь, что `python redcat_scraper.py` успешно отрабатывает вручную.
+1. Убедитесь, что `python -m redcat.collection.redcat_scraper` успешно отрабатывает вручную.
 2. Запустите `install_scheduled_task.bat` **от имени администратора**, либо
    нажмите «Установить автозапуск» в панели `launcher.bat` — она сама
    запросит права через UAC.
@@ -434,7 +442,7 @@ python redcat_scraper.py --token "eyJ...ваш_токен"
 ошибки), где обычно прямо написано, какой параметр не распознан.
 
 Что пробовать по очереди, перезапуская
-`python redcat_scraper.py --only apartments` после каждой правки:
+`python -m redcat.collection.redcat_scraper --only apartments` после каждой правки:
 
 - `"filter[housing_complex_id][]"` — массив значений (частый вариант для
   Laravel / Spatie QueryBuilder);
@@ -533,7 +541,7 @@ pd.read_sql("""
 ## Ключи командной строки
 
 ```
-python redcat_scraper.py [ключи]
+python -m redcat.collection.redcat_scraper [ключи]
 
   --token "eyJ..."       токен на этот запуск (перекрывает .env)
   --only apartments      собрать только указанные источники
@@ -558,28 +566,26 @@ python studio.py [ключи]
 
 ```
 studio.bat / studio.py       — ЗАПУСК ПРИЛОЖЕНИЯ
-webapp.py                    — сервер приложения (стандартная библиотека)
-web/                         — интерфейс: index.html, app.js, style.css
-dataops.py                   — движок данных: фильтры, сводные, выбросы, SQL
-studio_store.py              — локальное хранилище: правки, теги, виды, журнал
+redcat/web/                  — сервер приложения (webapp.py) и интерфейс
+redcat/data/                 — движок данных (dataops.py) и хранилище (studio_store.py)
 
-api_guard.py                 — БЛОКИРОВКА ЗАПИСИ В API
-selftest_readonly.py         — проверка блокировки
+redcat/core/api_guard.py     — БЛОКИРОВКА ЗАПИСИ В API
+redcat/tools/selftest_readonly.py — проверка блокировки
 check_readonly.bat           — та же проверка двойным кликом
 
-redcat_scraper.py            — сборщик данных
-diagnose.py                  — пошаговая диагностика источника
-crosschecks.py               — сквозные проверки целостности
-sources.py / sources/*.json  — описания API-источников
-storage.py                   — выгрузка в SQLite / Parquet / Excel
-anomalies.py                 — поиск аномалий
-quality.py                   — профиль данных и дрейф схемы
-run_stats.py                 — метрики запусков
-report_html.py               — статический HTML-дашборд
+redcat/collection/redcat_scraper.py — сборщик данных
+redcat/collection/diagnose.py  — пошаговая диагностика источника
+redcat/quality/crosschecks.py  — сквозные проверки целостности
+config/sources/*.json (корень config/) — описания API-источников
+redcat/data/storage.py         — выгрузка в SQLite / Parquet / Excel
+redcat/quality/anomalies.py    — поиск аномалий
+redcat/quality/drift.py        — профиль данных и дрейф схемы
+redcat/data/run_stats.py       — метрики запусков
+redcat/reporting/report_html.py — статический HTML-дашборд
 
-launcher.py / launcher.bat   — старая панель (есть кнопка запуска приложения)
-set_token.py / set_token.bat — обновление токена в .env
-demo_data.py / demo_data.bat — демо-набор для знакомства с приложением
+redcat/tools/launcher.py / launcher.bat — панель запуска
+redcat/tools/set_token.py / set_token.bat — обновление токена в .env
+redcat/tools/demo_data.py / demo_data.bat — демо-набор
 run_redcat_scraper.bat       — обёртка для Планировщика заданий
 install_scheduled_task.bat   — установка автозапуска (от админа)
 uninstall_scheduled_task.bat — удаление автозапуска
@@ -616,5 +622,5 @@ run_log.txt                  — лог автозапусков
 **Данных нет вообще** — либо запустите сбор, либо `demo_data.bat`, чтобы
 посмотреть интерфейс на выдуманном наборе.
 
-**Собралось меньше, чем должно** — `python redcat_scraper.py --diagnose`.
+**Собралось меньше, чем должно** — `python -m redcat.collection.redcat_scraper --diagnose`.
 Проверка займёт секунды и покажет, на каком именно шаге теряются записи.

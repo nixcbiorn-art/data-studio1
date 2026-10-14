@@ -58,4 +58,12 @@ htmlcov/
 *~
 .DS_Store
 Thumbs.db
+
+# ── Рантайм-состояние планировщика и бота (приватные chat_id, живой конфиг) ──
+tg_bot_state.json
+tg_run_state.json
+hub_schedule.json
+
+# ── Сторонние клоны внутри воркспейса (клон nixcbiorn-art/data-studio1) ──
+data-studio1/
 desktop.ini

@@ -260,15 +260,15 @@ def main() -> int:
     if apply:
         print()
         print("  Проверка:")
-        print("     python -m py_compile webapp.py redcat_scraper.py")
+        print("     python -m py_compile redcat/web/webapp.py redcat/collection/redcat_scraper.py")
         print("     python -c \"from redcat.data import dataops\"")
         print("     python -c \"from redcat.core import api_guard\"")
         print("     python -c \"from redcat.collection import rate_limit\"")
         print("     python -c \"from redcat.data import thresholds\"")
         print("     python -c \"from redcat.sources import name_normalizer\"")
-        print("     python -c \"import webapp\"")
-        print("     python -c \"import redcat_scraper\"")
-        print("     python redcat_scraper.py --list-sources")
+        print("     python -c \"import redcat.web.webapp\"")
+        print("     python -c \"import redcat.collection.redcat_scraper\"")
+        print("     python -m redcat.collection.redcat_scraper --list-sources")
         print("     python studio.py")
     return 0
 

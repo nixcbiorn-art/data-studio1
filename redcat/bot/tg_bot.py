@@ -142,9 +142,16 @@ def poll_loop(token: str, allowed_chats: set) -> None:
             if not chat_id or not text:
                 continue
             if allowed_chats and chat_id not in allowed_chats:
-                LOG.warning("сообщение от %s — не в списке разрешённых",
-                            chat_id)
-                continue
+                # Deep-ссылка приглашения (/start <код>) от неизвестного чата
+                # пропускаем к handle_command: там идёт собственная проверка
+                # bot_users (use_invite / add_pending). Без этого приглашения
+                # не погашались бы вообще.
+                if not (bot_users is not None
+                        and text.strip().startswith("/start")
+                        and len(text.split(maxsplit=1)) > 1):
+                    LOG.warning("сообщение от %s — не в списке разрешённых",
+                                chat_id)
+                    continue
             try:
                 handle_command(token, chat_id, text,
                                role=(bot_users.get_role(chat_id)
