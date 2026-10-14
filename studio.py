@@ -12,7 +12,7 @@ Python. Интернет требуется только самому сбору
 полностью офлайн.
 
 Режим работы с API — строго только чтение (GET). Проверить:
-    python selftest_readonly.py
+    python -m redcat.tools.selftest_readonly
 """
 
 from __future__ import annotations
