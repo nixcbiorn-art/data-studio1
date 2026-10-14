@@ -374,7 +374,7 @@ class GetRoutes:
 
         if route == "mail_label_tasks_config":
             from redcat.web.web_mail_label_tasks import get_config
-            return self._send({{"config": get_config()}})
+            return self._send({"config": get_config()})
 
         if route == "stream":
             return self._api_stream(p)
@@ -389,8 +389,8 @@ class GetRoutes:
         if route == "mail_saved_list":
             from redcat.web.web_mail_saved import list_saved, stats as _st
             q = self._one(p, "q") or ""
-            return self._send({{"items": list_saved(q),
-                                  "stats": _st()}})
+            return self._send({"items": list_saved(q),
+                              "stats": _st()})
 
         if route == "mail_saved_file":
             from redcat.web.web_mail_saved import file_path, get_saved
@@ -401,12 +401,12 @@ class GetRoutes:
             path = file_path(sid)
             if not path:
                 return self._error("Файл не найден", 404)
-            meta = get_saved(sid) or {{}}
+            meta = get_saved(sid) or {}
             fname = meta.get("filename") or path.name
             body = path.read_bytes()
-            return self._send(body, 200, "message/rfc822", {{
-                "Content-Disposition": f'attachment; filename="{{fname}}"'
-            }})
+            return self._send(body, 200, "message/rfc822", {
+                "Content-Disposition": 'attachment; filename="%s"' % fname
+            })
 
         if route == "mail_contacts_tree":
             from redcat.web.web_mail_contacts_tree import build_contacts_tree

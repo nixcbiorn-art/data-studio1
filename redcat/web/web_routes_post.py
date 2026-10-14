@@ -282,7 +282,7 @@ class PostRoutes:
             label = (b.get("label") or "").strip()
             if not label:
                 return self._error("Не указан label")
-            fields = {{k: v for k, v in b.items() if k != "label"}}
+            fields = {k: v for k, v in b.items() if k != "label"}
             return self._send(set_config(label, **fields))
 
         if route == "mail_notify_filters_save":
@@ -292,16 +292,16 @@ class PostRoutes:
         if route == "mail_save":
             from redcat.web.web_mail_saved import save_from_imap
             import sqlite3 as _sq
-            table = self._mail_source({{}})
+            table = self._mail_source({})
             db = db_for_table(table)
             mid = (b.get("message_id") or "").strip()
             if not mid:
                 return self._error("Нужен message_id")
-            _c = _sq.connect(f"file:{{db}}?mode=ro", uri=True)
+            _c = _sq.connect(f"file:{db}?mode=ro", uri=True)
             _c.row_factory = _sq.Row
             try:
                 row = _c.execute(
-                    f'SELECT * FROM "{{table}}" WHERE message_id = ?',
+                    f'SELECT * FROM "{table}" WHERE message_id = ?',
                     (mid,)).fetchone()
             finally:
                 _c.close()
