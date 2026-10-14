@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Письмо · RedCat Studio</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --fg:#e6e8ec;
+          --dim:#8b93a7; --accent:#4c8dff; --ok:#3ddc84; --warn:#ffb347;
+          --err:#ff5f6d; --line:#262b36; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 16px;
+           margin-bottom: 18px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; flex: 1; min-width: 200px; }
+  header a { color: var(--dim); text-decoration: none; font-size: 13px; }
+  header a:hover { color: var(--fg); }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+              color: var(--dim); margin: 0 0 12px; font-weight: 600; }
+  .meta-grid { display: grid; grid-template-columns: 90px 1fr;
+               gap: 6px 14px; font-size: 13px; }
+  .meta-grid dt { color: var(--dim); }
+  .meta-grid dd { margin: 0; word-break: break-word; }
+  .body {
+    margin-top: 16px; padding: 14px; background: var(--panel2);
+    border-radius: 6px; white-space: pre-wrap; word-break: break-word;
+    font: 12.5px/1.55 "SFMono-Regular", Consolas, monospace;
+    max-height: 480px; overflow-y: auto;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  button { background: var(--panel2); color: var(--fg);
+           border: 1px solid var(--line); padding: 9px 16px;
+           border-radius: 6px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--err); }
+  button.danger:hover { border-color: var(--err); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .locked {
+    padding: 10px 14px; background: rgba(255,179,71,.08);
+    border: 1px solid rgba(255,179,71,.3); border-radius: 6px;
+    color: var(--warn); font-size: 13px; margin-bottom: 10px;
+  }
+  textarea, input[type=text] {
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 12px; color: var(--fg);
+    font: inherit; width: 100%;
+  }
+  textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 180px; resize: vertical; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; color: var(--dim); font-size: 12px;
+                 margin-bottom: 4px; }
+  .result { margin-top: 10px; padding: 10px 12px; border-radius: 6px;
+            font-size: 13px; display: none; }
+  .result.ok { background: rgba(61,220,132,.1);
+               border: 1px solid rgba(61,220,132,.3); display: block; }
+  .result.err { background: rgba(255,95,109,.1);
+                border: 1px solid rgba(255,95,109,.3); display: block; }
+  .log { font-size: 12px; color: var(--dim); margin-top: 20px; }
+  .log table { width: 100%; border-collapse: collapse; }
+  .log td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  .log td:first-child { white-space: nowrap; color: var(--dim); width: 1%; }
+  .log tr.bad td { color: var(--err); }
+</style>
+<link rel="stylesheet" href="/_nav.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="subject">Загрузка…</h1>
+    <a href="/mail_chat.html">← к чату</a>
+    <a href="/mail_settings.html">настройки</a>
+  </header>
+
+  <div class="panel">
+    <h2>Письмо</h2>
+    <div id="policyBanner"></div>
+    <dl class="meta-grid" id="meta"></dl>
+    <div class="body" id="body">Тело не загружено.</div>
+
+    <div class="row">
+      <button id="bodyBtn">Показать тело</button>
+      <button id="markReadBtn">Пометить прочитанным</button>
+      <button id="markUnreadBtn">Пометить непрочитанным</button>
+      <button id="deleteBtn" class="danger">Удалить</button>
+    </div>
+    <div class="result" id="actionResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Ответить</h2>
+    <div class="field">
+      <label>Кому</label>
+      <input id="replyTo" type="text">
+    </div>
+    <div class="field">
+      <label>Тема</label>
+      <input id="replySubject" type="text">
+    </div>
+    <div class="field">
+      <label>Текст письма</label>
+      <textarea id="replyBody"></textarea>
+    </div>
+    <div class="row">
+      <button id="sendBtn" class="primary">Отправить</button>
+      <button id="clearBtn">Очистить</button>
+    </div>
+    <div class="result" id="sendResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Журнал действий</h2>
+    <div class="log" id="log"><table><tbody></tbody></table></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const MESSAGE_ID = params.get("message_id") || "";
+let POLICY = {allow_mark:false, allow_delete:false, allow_send:false};
+let CURRENT = null;
+
+function setResult(el, text, ok) {
+  el.textContent = text;
+  el.className = "result " + (ok ? "ok" : "err");
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/mail_view_status?message_id="
+                          + encodeURIComponent(MESSAGE_ID));
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    POLICY = d.policy || POLICY;
+    CURRENT = d.message || null;
+    render(d);
+  } catch (e) {
+    setResult($("actionResult"), "Не загрузилось: " + e.message, false);
+  }
+}
+
+function render(d) {
+  const m = d.message || {};
+  $("subject").textContent = m.subject || "(без темы)";
+  document.title = (m.subject || "Письмо") + " · RedCat Studio";
+
+  const meta = [];
+  meta.push(["Дата", m.date || "—"]);
+  meta.push(["От", (m.from_name || "") + (m.from_addr
+      ? ` <${m.from_addr}>` : "")]);
+  meta.push(["Кому", m.to || "—"]);
+  if (m.cc) meta.push(["Копия", m.cc]);
+  meta.push(["Папка", m.folder || "—"]);
+  meta.push(["UID", String(m.uid || "—")]);
+  if (m.attachments) meta.push(["Вложения", String(m.attachments)]);
+  meta.push(["Статус", m.seen ? "прочитано" : "новое"]);
+
+  $("meta").innerHTML = meta.map(
+    ([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
+
+  $("replyTo").value = m.from_addr || "";
+  $("replySubject").value = m.subject ? "Re: " + m.subject : "";
+  $("replyBody").value = "\n\n---\n" + (m.date || "") + ", "
+    + (m.from_name || m.from_addr || "") + " писал:\n";
+
+  // Показать/скрыть кнопки по политике
+  const locked = [];
+  if (!POLICY.allow_mark) {
+    locked.push("пометки писем");
+    $("markReadBtn").disabled = true;
+    $("markUnreadBtn").disabled = true;
+  }
+  if (!POLICY.allow_delete) {
+    locked.push("удаления писем");
+    $("deleteBtn").disabled = true;
+  }
+  if (!POLICY.allow_send) {
+    locked.push("отправки ответов");
+    $("sendBtn").disabled = true;
+  }
+  if (locked.length) {
+    $("policyBanner").innerHTML =
+      `<div class="locked">🔒 Выключено в настройках: `
+      + locked.join(", ") +
+      `. <a href="/mail_settings.html">Включить</a></div>`;
+  } else {
+    $("policyBanner").innerHTML = "";
+  }
+
+  renderLog(d.actions || []);
+}
+
+function renderLog(items) {
+  const tbody = document.querySelector("#log tbody");
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="3">— пусто —</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = items.map(a => `
+    <tr class="${a.ok ? "" : "bad"}">
+      <td>${escapeHtml(a.ts)}</td>
+      <td>${escapeHtml(a.action)}</td>
+      <td>${escapeHtml(a.subject || "")} ${
+            a.ok ? "" : "— " + escapeHtml(a.error || "")}</td>
+    </tr>`).join("");
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok) throw new Error((data && data.error) || ("HTTP " + r.status));
+  return data;
+}
+
+$("bodyBtn").onclick = async () => {
+  $("bodyBtn").disabled = true;
+  try {
+    const r = await fetch("/api/mail_message?message_id="
+      + encodeURIComponent(MESSAGE_ID) + "&with_body=1");
+    const d = await r.json();
+    if (d.body) {
+      $("body").textContent = d.body.body || "(пусто)";
+    } else if (d.body_error) {
+      $("body").textContent = "Не удалось прочитать: " + d.body_error;
+    } else {
+      $("body").textContent = "(тело не получено)";
+    }
+  } catch (e) {
+    $("body").textContent = "Ошибка: " + e.message;
+  } finally {
+    $("bodyBtn").disabled = false;
+  }
+};
+
+$("markReadBtn").onclick = () => doMark(true);
+$("markUnreadBtn").onclick = () => doMark(false);
+
+async function doMark(seen) {
+  try {
+    const d = await post("/api/mail_mark", {
+      message_id: MESSAGE_ID, seen: seen,
+    });
+    if (d.ok) {
+      setResult($("actionResult"),
+                seen ? "Помечено прочитанным." : "Помечено непрочитанным.", true);
+      loadStatus();
+    } else {
+      setResult($("actionResult"), d.error || "не удалось", false);
+    }
+  } catch (e) {
+    setResult($("actionResult"), e.message, false);
+  }
+}
+
+$("deleteBtn").onclick = async () => {
+  if (!confirm("Удалить письмо безвозвратно?\n\nОно будет помечено \\Deleted "
+              + "и EXPUNGE — восстановить из «Корзины» не получится, "
+              + "если сервер не настроен иначе.")) return;
+  if (prompt("Введите слово УДАЛИТЬ (заглавными) для подтверждения:")
+      !== "УДАЛИТЬ") {
+    setResult($("actionResult"), "Отменено.", false);
+    return;
+  }
+  try {
+    const d = await post("/api/mail_delete", { message_id: MESSAGE_ID });
+    if (d.ok) {
+      setResult($("actionResult"), "Удалено.", true);
+      setTimeout(() => location.href = "/mail_chat.html", 1500);
+    } else {
+      setResult($("actionResult"), d.error || "не удалось", false);
+    }
+  } catch (e) {
+    setResult($("actionResult"), e.message, false);
+  }
+};
+
+$("sendBtn").onclick = async () => {
+  const to = $("replyTo").value.trim();
+  const subj = $("replySubject").value.trim();
+  const body = $("replyBody").value;
+  if (!to || !body.trim()) {
+    setResult($("sendResult"), "Заполните «Кому» и текст.", false);
+    return;
+  }
+  if (!confirm(`Отправить письмо на ${to}?`)) return;
+  $("sendBtn").disabled = true;
+  try {
+    const d = await post("/api/mail_reply", {
+      to: to, subject: subj, body: body,
+      in_reply_to: (CURRENT && CURRENT.message_id) || "",
+    });
+    if (d.ok) {
+      setResult($("sendResult"), "Отправлено: " + (d.subject || ""), true);
+      loadStatus();
+    } else {
+      setResult($("sendResult"), d.error || "не удалось", false);
+    }
+  } catch (e) {
+    setResult($("sendResult"), e.message, false);
+  } finally {
+    $("sendBtn").disabled = false;
+  }
+};
+
+$("clearBtn").onclick = () => {
+  $("replyBody").value = "";
+  $("sendResult").className = "result";
+};
+
+if (!MESSAGE_ID) {
+  document.body.innerHTML = "<p>Не указан ?message_id=.</p>";
+} else {
+  loadStatus();
+}
+</script>
+<script src="/_nav.js"></script>
+</body>
+</html>

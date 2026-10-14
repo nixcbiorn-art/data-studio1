@@ -1,0 +1,64 @@
+{
+  "key": "profitbase_oro",
+  "title": "Profitbase — ЖК ORO (коммерция, YRL)",
+  "external": true,
+  "format": "xml",
+  "xml_record_tag": "offer",
+  "parse_strategy": "xml_tag",
+  "url": "https://pb16259.profitbase.ru/export/profitbase_xml/6545b131fb5476f16b8c30b3cc90594f?scheme=https",
+  "page_size": 1000000,
+  "data_path": ["items"],
+  "total_path": ["total"],
+  "flatten_depth": 3,
+  "id_field": "internal_id",
+  "name_field": "number",
+  "mapping": {
+    "internal_id":        "internal-id",
+    "creation_date":      "creation-date",
+    "last_update_date":   "last-update-date",
+    "new_flat":           "new-flat",
+    "property_type":      "property_type",
+    "complex_id":         "object.id",
+    "complex_name":       "object.name",
+    "country":            "object.location.country",
+    "city":               "object.location.locality-name",
+    "district":           "object.location.district",
+    "address":            "object.location.address",
+    "house_id":           "house.id",
+    "house_name":         "house.name",
+    "floors_total":       "house.floors-total",
+    "price":              "price.value",
+    "currency":           "price.currency",
+    "price_per_sqm":      "price-meter.value",
+    "area_total":         "area.value",
+    "area_unit":          "area.unit",
+    "number":             "number",
+    "layout_code":        "layout-code",
+    "preset_code":        "preset-code",
+    "rooms":              "rooms",
+    "floor":              "floor",
+    "building_section":   "building-section",
+    "status":             "status",
+    "status_humanized":   "status-humanized",
+    "facing":             "facing",
+    "description":        "description"
+  },
+  "numeric_fields": [
+    "price", "price_per_sqm", "area_total",
+    "floor", "floors_total", "rooms"
+  ],
+  "group_fields": [
+    "complex_name", "house_name",
+    "property_type", "status_humanized", "facing"
+  ],
+  "track_fields": [
+    "price", "status", "status_humanized"
+  ],
+  "positive_fields": ["price", "area_total"],
+  "required_fields": ["internal_id", "price", "area_total"],
+  "pagination_strategy": "stop",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Referer": "https://pb16259.profitbase.ru/"
+  }
+}

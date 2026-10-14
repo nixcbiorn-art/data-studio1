@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Почта — настройка · RedCat Studio</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b;
+    --fg: #e6e8ec; --dim: #8b93a7; --accent: #4c8dff;
+    --ok: #3ddc84; --warn: #ffb347; --err: #ff5f6d; --line: #262b36;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin-bottom: 24px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px; margin-bottom: 16px;
+  }
+  .panel h2 {
+    font-size: 14px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--dim); margin: 0 0 14px; font-weight: 600;
+  }
+  .row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .field { flex: 1 1 220px; display: flex; flex-direction: column; gap: 6px; }
+  .field.grow { flex: 2 1 320px; }
+  label { color: var(--dim); font-size: 12px; }
+  input, select {
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 9px 11px; color: var(--fg);
+    font: inherit; width: 100%;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: -6px; margin-bottom: 12px; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  button {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 6px; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    font-size: 13px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.err { background: var(--err); }
+  .result {
+    margin-top: 10px; padding: 10px 12px; border-radius: 6px;
+    font-size: 13px; display: none; white-space: pre-wrap;
+  }
+  .result.ok { background: rgba(61,220,132,.1); border: 1px solid rgba(61,220,132,.3); }
+  .result.err { background: rgba(255,95,109,.1); border: 1px solid rgba(255,95,109,.3); }
+  .result.show { display: block; }
+  .meta { color: var(--dim); font-size: 12px; }
+  .meta code { background: var(--panel2); padding: 1px 5px; border-radius: 3px; }
+  a { color: var(--accent); }
+  .steps { list-style: none; padding: 0; margin: 0; }
+  .steps li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .steps li:last-child { border-bottom: none; }
+  .steps li::before { content: "▸ "; color: var(--dim); }
+
+  /* ── Скрыто патчем patch_hide_smtp.py: SMTP заблокирован сетью ── */
+  /* Панель «Отправка ответов (SMTP)» и связанные поля. */
+  #smtpPreset, #smtpHost, #smtpPort, #smtpMode,
+  #smtpUser, #smtpPassword, #smtpPwState,
+  #smtpSaveBtn, #smtpTestBtn, #smtpResult,
+  #allowSend, label[for="allowSend"] {
+    display: none !important;
+  }
+  /* Скрываем всю карточку с SMTP — по заголовку h2. */
+  .panel:has(#smtpHost) {
+    display: none !important;
+  }
+
+</style>
+<link rel="stylesheet" href="/_nav.css">
+</head>
+<body>
+
+<div id="smtpHint" style="
+  max-width: 760px; margin: 0 auto 16px;
+  padding: 14px 18px;
+  background: rgba(76,141,255,.08);
+  border: 1px solid rgba(76,141,255,.3);
+  border-radius: 10px;
+  font-size: 13.5px; line-height: 1.55;
+">
+  <div style="font-weight: 600; margin-bottom: 6px;">
+    ✉️ Как отвечать на письма
+  </div>
+  <div>
+    Прямая отправка через SMTP в вашей сети недоступна — это сетевое
+    ограничение, не ошибка приложения. Отвечать можно из карточки
+    письма: кнопка
+    <b style="color:#4c8dff;">«Ответить в Яндекс.Почте»</b>
+    открывает форму письма в браузере с уже подставленными адресом
+    и темой.
+  </div>
+  <div style="margin-top: 8px; color:#8b93a7; font-size: 12.5px;">
+    Порядок: откройте
+    <a href="/mail_chat.html" style="color:#4c8dff;text-decoration:none;">чат</a>
+    → кликните письмо → нажмите «Ответить в Яндекс.Почте». Всё
+    остальное — сбор, поиск, метки — работает как обычно.
+  </div>
+</div>
+
+<div class="wrap">
+  <h1>Почта</h1>
+  <div class="sub">Чтение входящих по IMAP. Только чтение — письма не помечаются
+    прочитанными, ничего не удаляется и не двигается.</div>
+
+  <div class="panel">
+    <h2>Статус</h2>
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="statusText">Загружаю…</span>
+    </div>
+    <div class="meta" id="meta"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Доступ к ящику</h2>
+
+    <div class="row">
+      <div class="field">
+        <label for="preset">Провайдер</label>
+        <select id="preset"></select>
+      </div>
+      <div class="field grow">
+        <label for="host">IMAP-хост</label>
+        <input id="host" placeholder="imap.example.com" autocomplete="off">
+      </div>
+      <div class="field" style="flex: 0 0 110px;">
+        <label for="port">Порт</label>
+        <input id="port" value="993" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="hint" id="presetHint"></div>
+
+    <div class="row">
+      <div class="field grow">
+        <label for="user">Логин (адрес почты)</label>
+        <input id="user" placeholder="me@example.com" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field grow">
+        <label for="password">Пароль приложения <span id="pwState"></span></label>
+        <input id="password" type="password" autocomplete="new-password"
+               placeholder="оставьте пустым — сохранится текущий">
+      </div>
+    </div>
+
+    <div class="btns">
+      <button id="testBtn">Проверить связь</button>
+      <button id="saveBtn" class="primary">Сохранить</button>
+      <button id="collectBtn" disabled>Собрать почту</button>
+    </div>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Уведомления и автосбор</h2>
+    <div class="meta" style="margin-bottom: 14px;">
+      Фоновый поток раз в N минут запускает сбор почты. Если появились новые
+      письма и включены уведомления — отправит сводку в Telegram.
+      Настроить Telegram можно в основном приложении или командой
+      <code>python -m redcat.tools.set_telegram</code>.
+    </div>
+    <div class="btns">
+      <a href="/mail_chat.html"
+         style="display:inline-block;padding:10px 16px;border:1px solid #262b36;
+                border-radius:6px;color:#4c8dff;text-decoration:none;">
+        💬 Открыть чат и настройки автосбора →
+      </a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Срок сбора</h2>
+    <div class="meta" style="margin-bottom: 12px;">
+      За сколько дней забирать письма. Сбор читает только заголовки.
+    </div>
+    <div class="btns" id="periodBtns">
+      <button data-days="1">За сутки</button>
+      <button data-days="7">За неделю</button>
+      <button data-days="30">За месяц</button>
+      <button data-days="90">За 3 месяца</button>
+      <button data-days="365">За год</button>
+    </div>
+    <div class="result" id="periodResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Отправка ответов (SMTP)</h2>
+    <div class="meta" style="margin-bottom: 14px;">
+      Заполните, если хотите отвечать на письма прямо из приложения.
+      Используйте тот же адрес и пароль приложения, что и для IMAP
+      (у Gmail/Yandex/Mail.ru — тот же, но хост отличается).
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="smtpPreset">Провайдер</label>
+        <select id="smtpPreset">
+          <option value="gmail">Gmail</option>
+          <option value="yandex">Яндекс.Почта</option>
+          <option value="mailru">Mail.ru</option>
+          <option value="custom">Свой сервер</option>
+        </select>
+      </div>
+      <div class="field grow">
+        <label for="smtpHost">SMTP-хост</label>
+        <input id="smtpHost" placeholder="smtp.example.com" autocomplete="off">
+      </div>
+      <div class="field" style="flex: 0 0 110px;">
+        <label for="smtpPort">Порт</label>
+        <input id="smtpPort" value="587" autocomplete="off">
+      </div>
+      <div class="field" style="flex: 0 0 140px;">
+        <label for="smtpMode">Шифрование</label>
+        <select id="smtpMode">
+          <option value="starttls">STARTTLS</option>
+          <option value="ssl">SSL</option>
+          <option value="plain">Без шифрования</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field grow">
+        <label for="smtpUser">Логин</label>
+        <input id="smtpUser" placeholder="me@example.com" autocomplete="off">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field grow">
+        <label for="smtpPassword">Пароль приложения
+          <span id="smtpPwState"></span></label>
+        <input id="smtpPassword" type="password" autocomplete="new-password"
+               placeholder="оставьте пустым — сохранится текущий">
+      </div>
+    </div>
+
+    <div class="btns">
+      <button id="smtpSaveBtn" class="primary">Сохранить SMTP</button>
+      <button id="smtpTestBtn">Проверить связь</button>
+    </div>
+    <div class="result" id="smtpResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Действия с письмами</h2>
+    <div style="padding:12px 14px;background:rgba(255,179,71,.08);
+                border:1px solid rgba(255,179,71,.3);border-radius:6px;
+                color:#ffb347;font-size:13px;margin-bottom:14px;">
+      ⚠️ Пометка и удаление <b>изменяют</b> ваш ящик на сервере. Это ломает
+      принцип «только чтение», принятый для API источников. Включайте
+      осознанно. Каждое действие пишется в журнал.
+    </div>
+    <div class="switch">
+      <input type="checkbox" id="allowMark">
+      <label for="allowMark">Разрешить помечать письма прочитанными / новыми</label>
+    </div>
+    <div class="switch">
+      <input type="checkbox" id="allowDelete">
+      <label for="allowDelete">Разрешить удалять письма (STORE \Deleted + EXPUNGE)</label>
+    </div>
+    <div class="switch">
+      <input type="checkbox" id="allowSend">
+      <label for="allowSend">Разрешить отправлять ответы через SMTP</label>
+    </div>
+    <div class="btns" style="margin-top: 12px;">
+      <button id="policySaveBtn" class="primary">Сохранить разрешения</button>
+    </div>
+    <div class="result" id="policyResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>О каких письмах уведомлять</h2>
+    <div class="meta" style="margin-bottom:12px;">
+      Telegram-уведомления приходят после каждого сбора почты.
+      Настройте, какие письма считать «важными».
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Режим</label>
+        <select id="nfMode">
+          <option value="blacklist">Уведомлять все, КРОМЕ…</option>
+          <option value="whitelist">Уведомлять ТОЛЬКО совпадающие</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field grow">
+        <label>Отправитель содержит</label>
+        <input id="nfFrom" placeholder="например: client@company.ru">
+      </div>
+      <div class="field grow">
+        <label>Тема содержит</label>
+        <input id="nfSubject" placeholder="например: заказ">
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0;">
+      <label style="color:var(--dim);font-size:13px;">
+        <input type="checkbox" id="nfUnread"> Только непрочитанные
+      </label>
+      <label style="color:var(--dim);font-size:13px;">
+        <input type="checkbox" id="nfAttach"> Только с вложениями
+      </label>
+      <label style="color:var(--dim);font-size:13px;">
+        <input type="checkbox" id="nfMailing"> Игнорировать рассылки
+        (no-reply, mailer-daemon и т.п.)
+      </label>
+      <label style="color:var(--dim);font-size:13px;">
+        <input type="checkbox" id="nfPush"> Показывать браузерные уведомления
+        (в браузере, на странице чата)
+      </label>
+    </div>
+    <div class="btns">
+      <button id="nfSave" class="primary">Сохранить фильтры</button>
+      <button id="nfTestPush">Разрешить браузерные уведомления</button>
+    </div>
+    <div class="result" id="nfResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Что дальше</h2>
+    <ul class="steps">
+      <li>Сохраните настройки — они запишутся в <code>.env</code> на вашем диске.</li>
+      <li>Нажмите «Собрать почту» — приложение читает заголовки писем за 30 дней.</li>
+      <li>Вкладка «Почта» в основном приложении покажет список, отправителей и статистику.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let PRESETS = {};
+let STATE = {};
+
+function setResult(text, ok) {
+  const el = $("result");
+  el.textContent = text;
+  el.className = "result show " + (ok ? "ok" : "err");
+}
+function clearResult() {
+  $("result").className = "result";
+  $("result").textContent = "";
+}
+
+function fillPresets(presets) {
+  PRESETS = presets;
+  const sel = $("preset");
+  sel.innerHTML = "";
+  for (const [key, p] of Object.entries(presets)) {
+    const o = document.createElement("option");
+    o.value = key;
+    o.textContent = p.title;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => {
+    const p = PRESETS[sel.value];
+    if (p && sel.value !== "custom") {
+      $("host").value = p.host;
+      $("port").value = p.port;
+    }
+    $("presetHint").textContent = p ? p.hint : "";
+  };
+  // автоопределение по текущему хосту
+  const cur = $("host").value.toLowerCase();
+  let matched = "custom";
+  for (const [k, p] of Object.entries(presets)) {
+    if (p.host && cur === p.host.toLowerCase()) { matched = k; break; }
+  }
+  sel.value = matched;
+  $("presetHint").textContent = (PRESETS[matched] || {}).hint || "";
+}
+
+function applyStatus(s) {
+  STATE = s;
+  $("host").value = s.host || "";
+  $("port").value = s.port || "993";
+  $("user").value = s.user || "";
+  $("pwState").textContent = s.password_set
+      ? `(сохранён ${s.password_preview})` : "(не задан)";
+  fillPresets(s.presets || {});
+
+  const dot = $("dot");
+  const text = $("statusText");
+  dot.className = "dot";
+  if (s.configured && s.table_exists) {
+    dot.classList.add("ok");
+    text.textContent = "Настроено, почта собирается";
+  } else if (s.configured) {
+    dot.classList.add("warn");
+    text.textContent = "Настроено, но ещё не собиралось";
+  } else {
+    dot.classList.add("warn");
+    text.textContent = "Не настроено";
+  }
+
+  const meta = [];
+  if (s.source_exists) meta.push(`источник: <code>${s.source_path.split(/[\\/]/).pop()}</code>`);
+  if (s.table_exists) meta.push(`писем в базе: <b>${s.table_rows}</b>`);
+  else meta.push(`таблицы в базе пока нет`);
+  meta.push(`<code>.env</code>: ${s.env_file}`);
+  $("meta").innerHTML = meta.join(" · ");
+
+  $("collectBtn").disabled = !s.configured;
+}
+
+async function load() {
+  try {
+    const r = await fetch("/api/mail_settings_status");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    applyStatus(await r.json());
+  } catch (e) {
+    setResult("Не удалось получить статус: " + e.message, false);
+  }
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok) {
+    const msg = (data && (data.error || data.message)) || ("HTTP " + r.status);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+$("testBtn").onclick = async () => {
+  clearResult();
+  $("testBtn").disabled = true;
+  try {
+    const res = await post("/api/mail_settings_test", {
+      host: $("host").value, port: $("port").value,
+      user: $("user").value, password: $("password").value,
+    });
+    if (res.ok) {
+      const t = res.total != null ? `, писем в INBOX: ${res.total}` : "";
+      setResult("✅ Связь есть" + t, true);
+    } else {
+      setResult("❌ " + (res.error || "неизвестная ошибка"), false);
+    }
+  } catch (e) {
+    setResult("❌ " + e.message, false);
+  } finally {
+    $("testBtn").disabled = false;
+  }
+};
+
+$("saveBtn").onclick = async () => {
+  clearResult();
+  $("saveBtn").disabled = true;
+  try {
+    const s = await post("/api/mail_settings_save", {
+      host: $("host").value, port: $("port").value,
+      user: $("user").value, password: $("password").value,
+    });
+    $("password").value = "";
+    applyStatus(s);
+    setResult("✅ Сохранено в .env. Теперь можно нажать «Собрать почту».", true);
+  } catch (e) {
+    setResult("❌ " + e.message, false);
+  } finally {
+    $("saveBtn").disabled = false;
+  }
+};
+
+$("collectBtn").onclick = async () => {
+  clearResult();
+  $("collectBtn").disabled = true;
+  try {
+    const res = await post("/api/mail_collect", {});
+    if (res.ok) {
+      setResult("✅ Сбор запущен. Следите за выводом в разделе «Сбор» "
+                + "или обновите эту страницу через минуту.", true);
+    } else {
+      setResult("❌ " + (res.error || "не удалось запустить сбор"), false);
+    }
+  } catch (e) {
+    setResult("❌ " + e.message, false);
+  } finally {
+    setTimeout(() => { $("collectBtn").disabled = false; }, 3000);
+  }
+};
+
+load();
+
+// ── SMTP ──
+async function loadSmtp() {
+  try {
+    const r = await fetch("/api/mail_smtp_status");
+    if (!r.ok) return;
+    const s = await r.json();
+    $("smtpHost").value = s.host || "";
+    $("smtpPort").value = s.port || "587";
+    $("smtpUser").value = s.user || "";
+    $("smtpMode").value = s.mode || "starttls";
+    $("smtpPwState").textContent = s.password_set
+        ? "(сохранён " + s.password_preview + ")" : "(не задан)";
+  } catch (_) {}
+}
+document.getElementById("smtpPreset").onchange = (e) => {
+  const p = {
+    gmail:   {host:"smtp.gmail.com",  port:587, mode:"starttls"},
+    yandex:  {host:"smtp.yandex.ru",  port:465, mode:"ssl"},
+    mailru:  {host:"smtp.mail.ru",    port:465, mode:"ssl"},
+    custom:  {host:"", port:587, mode:"starttls"},
+  }[e.target.value];
+  if (p) {
+    $("smtpHost").value = p.host;
+    $("smtpPort").value = p.port;
+    $("smtpMode").value = p.mode;
+  }
+};
+$("smtpSaveBtn").onclick = async () => {
+  try {
+    const r = await fetch("/api/mail_smtp_save", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        host: $("smtpHost").value, port: $("smtpPort").value,
+        user: $("smtpUser").value, password: $("smtpPassword").value,
+        mode: $("smtpMode").value,
+      }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      $("smtpPassword").value = "";
+      $("smtpResult").className = "result ok";
+      $("smtpResult").textContent = "✅ Сохранено.";
+      loadSmtp();
+    } else {
+      $("smtpResult").className = "result err";
+      $("smtpResult").textContent = "❌ " + (d.error || "не сохранилось");
+    }
+  } catch (e) {
+    $("smtpResult").className = "result err";
+    $("smtpResult").textContent = "❌ " + e.message;
+  }
+};
+$("smtpTestBtn").onclick = async () => {
+  try {
+    const r = await fetch("/api/mail_smtp_test", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:"{}"});
+    const d = await r.json();
+    $("smtpResult").className = "result " + (d.ok ? "ok" : "err");
+    $("smtpResult").textContent = d.ok ? "✅ SMTP отвечает." :
+      "❌ " + (d.error || "не подключается");
+  } catch (e) {
+    $("smtpResult").className = "result err";
+    $("smtpResult").textContent = "❌ " + e.message;
+  }
+};
+
+// ── Политика действий ──
+async function loadPolicy() {
+  try {
+    const r = await fetch("/api/mail_policy_status");
+    if (!r.ok) return;
+    const p = await r.json();
+    $("allowMark").checked = !!p.allow_mark;
+    $("allowDelete").checked = !!p.allow_delete;
+    $("allowSend").checked = !!p.allow_send;
+  } catch (_) {}
+}
+$("policySaveBtn").onclick = async () => {
+  try {
+    const r = await fetch("/api/mail_policy_save", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        allow_mark: $("allowMark").checked,
+        allow_delete: $("allowDelete").checked,
+        allow_send: $("allowSend").checked,
+      }),
+    });
+    const d = await r.json();
+    $("policyResult").className = "result " + (r.ok ? "ok" : "err");
+    $("policyResult").textContent = r.ok
+      ? "✅ Разрешения сохранены." : "❌ " + (d.error || "не сохранилось");
+  } catch (e) {
+    $("policyResult").className = "result err";
+    $("policyResult").textContent = "❌ " + e.message;
+  }
+};
+
+// ── Период сбора ──
+document.getElementById("periodBtns").onclick = async (e) => {
+  const b = e.target.closest("button[data-days]");
+  if (!b) return;
+  const days = parseInt(b.dataset.days, 10);
+  try {
+    const r = await fetch("/api/mail_period_save", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({days, collect: true}),
+    });
+    const d = await r.json();
+    $("periodResult").className = "result " + (d.ok ? "ok" : "err");
+    $("periodResult").textContent = d.ok
+      ? `✅ Установлено ${days} дн., сбор запущен.`
+      : "❌ " + (d.error || "не переключилось");
+  } catch (e) {
+    $("periodResult").className = "result err";
+    $("periodResult").textContent = "❌ " + e.message;
+  }
+};
+
+loadSmtp();
+loadPolicy();
+</script>
+<script src="/_nav.js">
+// ── Фильтры уведомлений (patch_mail_notify_saved.py) ──
+(async function(){
+  const $ = (id) => document.getElementById(id);
+  try {
+    const r = await fetch("/api/mail_notify_filters");
+    if (!r.ok) return;
+    const c = await r.json();
+    $("nfMode").value = c.mode || "blacklist";
+    $("nfFrom").value = c.from_contains || "";
+    $("nfSubject").value = c.subject_contains || "";
+    $("nfUnread").checked = !!c.only_unread;
+    $("nfAttach").checked = !!c.only_attach;
+    $("nfMailing").checked = !!c.skip_mailing;
+    $("nfPush").checked = !!c.browser_push;
+  } catch (_) {}
+  $("nfSave").onclick = async () => {
+    $("nfSave").disabled = true;
+    try {
+      const r = await fetch("/api/mail_notify_filters_save", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          enabled: true,
+          mode: $("nfMode").value,
+          from_contains: $("nfFrom").value,
+          subject_contains: $("nfSubject").value,
+          only_unread: $("nfUnread").checked,
+          only_attach: $("nfAttach").checked,
+          skip_mailing: $("nfMailing").checked,
+          browser_push: $("nfPush").checked,
+        })
+      });
+      const d = await r.json();
+      const el = $("nfResult");
+      el.className = "result " + (r.ok ? "ok" : "err");
+      el.textContent = r.ok ? "✅ Сохранено" : "❌ " + (d.error||"?");
+    } catch (e) {
+      $("nfResult").className = "result err";
+      $("nfResult").textContent = "❌ " + e.message;
+    } finally { $("nfSave").disabled = false; }
+  };
+  $("nfTestPush").onclick = async () => {
+    if (!("Notification" in window)) {
+      $("nfResult").className = "result err";
+      $("nfResult").textContent = "❌ Браузер не поддерживает";
+      return;
+    }
+    const p = await Notification.requestPermission();
+    $("nfResult").className = "result " + (p === "granted" ? "ok" : "err");
+    $("nfResult").textContent = p === "granted"
+      ? "✅ Разрешение получено"
+      : "⚠ " + p;
+  };
+})();
+
+</script>
+</body>
+</html>

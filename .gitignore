@@ -1,0 +1,69 @@
+# ── Секреты ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+# токены приглашений и список Telegram-пользователей — локальные секреты
+bot_users.json
+bot_invites.json
+# архивы снимков (в старых сборках содержат копию .env) и папка бэкапов
+*.zip
+/backups_*/
+
+# ── Локальные данные пользователя ────────────────────────
+studio.db
+studio.db-wal
+studio.db-shm
+.qoder/
+
+# ── Собранные данные и выгрузки ──────────────────────────
+reports/
+!reports/.gitkeep
+
+history/
+!history/.gitkeep
+
+# ── Профили браузера (cookies, localStorage, кэш) ────────
+browser_profiles/
+
+# ── Логи ─────────────────────────────────────────────────
+*.log
+run_log.txt
+
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ── Резервные копии ──────────────────────────────────────
+*.bak
+*.bak*
+*.backup
+
+# ── Редакторы и ОС ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ── Рантайм-состояние планировщика и бота (приватные chat_id, живой конфиг) ──
+tg_bot_state.json
+tg_run_state.json
+hub_schedule.json
+
+# ── Сторонние клоны внутри воркспейса (клон nixcbiorn-art/data-studio1) ──
+data-studio1/
+desktop.ini

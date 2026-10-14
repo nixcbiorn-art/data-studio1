@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Хаб · RedCat</title>
+<link rel="stylesheet" href="/_nav.css">
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b;
+          --fg:#e6e8ec; --dim:#8b93a7; --accent:#4c8dff;
+          --ok:#3ddc84; --warn:#ffb347; --err:#ff5f6d; --line:#262b36; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg);
+         color: var(--fg); font: 14px/1.5 -apple-system,
+         "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header { display:flex; align-items:baseline; gap:16px;
+           margin-bottom:20px; flex-wrap:wrap; }
+  header h1 { font-size: 20px; margin: 0; }
+  header .sub { color: var(--dim); font-size: 13px; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase;
+              letter-spacing: .05em; color: var(--dim);
+              margin: 0 0 14px; font-weight: 600; }
+
+  .job {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .job:last-child { border-bottom: 0; }
+  .job .info .title {
+    font-weight: 500; font-size: 14px;
+  }
+  .job .info .desc {
+    color: var(--dim); font-size: 12px; margin-top: 3px;
+  }
+  .job .info .meta {
+    color: #6a7286; font-size: 11.5px; margin-top: 4px;
+  }
+  .job .status { font-size: 12px; color: var(--dim); min-width: 110px;
+                 text-align: right; }
+  .job .interval { display: flex; align-items: center; gap: 6px; }
+  .job .interval input {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); padding: 5px 8px; border-radius: 6px;
+    font: inherit; width: 68px; font-size: 13px; text-align: right;
+  }
+  .job .interval input:focus { outline: none; border-color: var(--accent); }
+  .job .interval span { color: var(--dim); font-size: 12px; }
+
+  button { background: var(--panel2); border: 1px solid var(--line);
+           color: var(--fg); padding: 7px 14px; border-radius: 6px;
+           cursor: pointer; font: inherit; font-size: 13px; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent);
+                   border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #5a97ff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .toggle {
+    display: inline-block; width: 38px; height: 20px;
+    background: #3a3f4b; border-radius: 10px;
+    position: relative; cursor: pointer; transition: background .12s;
+    flex: 0 0 auto;
+  }
+  .toggle.on { background: var(--ok); }
+  .toggle::after {
+    content: ""; position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    background: #fff; border-radius: 50%;
+    transition: left .12s;
+  }
+  .toggle.on::after { left: 20px; }
+
+  .runner-status {
+    padding: 12px 14px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px;
+    font-size: 13px; display: flex; align-items: center; gap: 10px;
+  }
+  .runner-status.running { border-color: var(--warn);
+                           background: rgba(255,179,71,.08); }
+  .dot { width: 8px; height: 8px; border-radius: 50%;
+         background: var(--dim); flex: 0 0 auto; }
+  .dot.on { background: var(--ok); }
+  .dot.busy { background: var(--warn); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .result { margin-top: 8px; padding: 8px 12px;
+            background: var(--panel2); border: 1px solid var(--line);
+            border-radius: 6px; color: var(--dim); font-size: 12px;
+            white-space: pre-wrap; word-break: break-word; }
+
+  .hint { color: var(--dim); font-size: 12px; }
+</style>
+  <link rel="icon" href="data:,">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📡 Хаб задач</h1>
+    <div class="sub">Сбор почты и данных RedCat в одном сервисе</div>
+  </header>
+
+  <div class="panel">
+    <h2>Что сейчас происходит</h2>
+    <div id="runner" class="runner-status">
+      <span class="dot"></span>
+      <span>Загрузка…</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Задачи</h2>
+    <div id="jobs">Загрузка…</div>
+  </div>
+
+
+  <div class="panel">
+    <h2>Realtime streaming · почта</h2>
+    <div id="streamMailStatus" class="runner-status">
+      <span class="dot"></span>
+      <span>Загрузка…</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Realtime streaming · фиды</h2>
+    <div id="streamFeedStatus" class="runner-status">
+      <span class="dot"></span>
+      <span>Загрузка…</span>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Как это работает</h2>
+    <div class="hint">
+      Хаб-планировщик просыпается каждые 20 секунд и проверяет расписание.
+      Если задача «созрела» — запускает. Одновременно идёт только одна
+      задача. Когда задача закончится, следующая может стартовать.<br><br>
+      Интервал — в минутах. Минимум 5, максимум 10080 (неделя).
+    </div>
+  </div>
+</div>
+
+<script src="/_nav.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/hub");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    renderRunnerSummary(d.jobs);
+    renderJobs(d.jobs);
+  } catch (e) {
+    $("runner").innerHTML = '<span class="dot"></span>'
+      + 'Ошибка: ' + e.message;
+  }
+}
+
+function renderRunnerSummary(jobs) {
+  const el = $("runner");
+  if (!el) return;
+  const busy = (jobs || []).filter(j => j.runner && j.runner.running);
+  if (!busy.length) {
+    el.className = "runner-status";
+    el.innerHTML = '<span class="dot"></span>'
+      + '<span>Простой — ни одна задача не выполняется</span>';
+    return;
+  }
+  el.className = "runner-status running";
+  const lines = busy.map(j => {
+    const cmd = j.runner && j.runner.command
+      ? (Array.isArray(j.runner.command)
+         ? j.runner.command.join(" ") : j.runner.command)
+      : "";
+    return '<div><b>' + escapeHtml(j.title || j.key) + '</b>'
+      + (cmd ? ' · <code>' + escapeHtml(cmd.slice(0, 100))
+              + '</code>' : '')
+      + ' · <i>' + escapeHtml(j.runner.started_at || "") + '</i></div>';
+  });
+  el.innerHTML = '<span class="dot busy"></span>'
+    + '<div><b>Идёт задач: ' + busy.length + '</b></div>'
+    + lines.join("");
+}
+
+function renderJobs(jobs) {
+  if (!jobs || !jobs.length) {
+    $("jobs").textContent = "Задач нет";
+    return;
+  }
+  const html = jobs.map(j => {
+    const enabled = !!j.enabled;
+    const thisRunning = !!(j.runner && j.runner.running);
+    const next = j.next_in_minutes;
+    let nextText = "";
+    if (!enabled) nextText = "выключено";
+    else if (next === null || next === undefined) nextText = "—";
+    else if (next <= 0) nextText = "скоро";
+    else nextText = "через " + next + " мин";
+    const lastRun = j.last_run
+      ? "последний: " + j.last_run.replace("T", " ")
+      : "ещё не запускалась";
+    const lastRes = j.last_result;
+    const resText = lastRes
+      ? (lastRes.error ? "⚠ " + lastRes.error
+         : lastRes.skipped ? "⏭ " + (lastRes.reason || "")
+         : lastRes.exit_code === 0 ? "✅ успешно"
+         : lastRes.exit_code !== undefined && lastRes.exit_code !== null
+            ? "код " + lastRes.exit_code : "готово")
+      : "";
+    const statusLine = thisRunning
+      ? '<span style="color:#ffb347;">● выполняется сейчас</span>'
+      : escapeHtml(nextText) + " · " + escapeHtml(lastRun)
+        + (resText ? ' · ' + escapeHtml(resText) : '');
+
+    return `
+      <div class="job" data-key="${escapeHtml(j.key)}">
+        <div class="info">
+          <div class="title">${escapeHtml(j.title || j.key)}</div>
+          <div class="desc">${escapeHtml(j.desc || "")}</div>
+          <div class="meta">${statusLine}</div>
+        </div>
+        <div class="toggle ${enabled ? "on" : ""}"
+             data-key="${escapeHtml(j.key)}"></div>
+        <div class="interval">
+          <input type="number" min="5" max="10080"
+                 value="${parseInt(j.interval,10) || 60}"
+                 data-key="${escapeHtml(j.key)}">
+          <span>мин</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="primary" data-run="${escapeHtml(j.key)}"
+                  ${thisRunning ? "disabled" : ""}>
+            ${thisRunning ? "⏳ Идёт" : "▶ Сейчас"}
+          </button>
+          <button data-stop="${escapeHtml(j.key)}"
+                  ${thisRunning ? "" : "disabled"}
+                  style="background:#ff5f6d;border-color:#ff5f6d;color:#fff;">
+            ⏹
+          </button>
+        </div>
+      </div>`;
+  }).join("");
+  $("jobs").innerHTML = html;
+
+  document.querySelectorAll(".toggle").forEach(el => {
+    el.onclick = () => toggleJob(el.dataset.key,
+                                 !el.classList.contains("on"));
+  });
+  document.querySelectorAll(".interval input").forEach(el => {
+    el.onchange = () => saveInterval(el.dataset.key, el.value);
+  });
+  document.querySelectorAll("[data-run]").forEach(el => {
+    el.onclick = () => runNow(el.dataset.run);
+  });
+  document.querySelectorAll("[data-stop]").forEach(el => {
+    el.onclick = () => stopJob(el.dataset.stop);
+  });
+}
+
+async function stopJob(key) {
+  if (!confirm("Остановить «" + key + "»?")) return;
+  try {
+    const r = await fetch("/api/hub_stop", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key})
+    });
+    const d = await r.json();
+    if (!d.ok) alert("Не удалось: " + (d.error || "?"));
+  } catch (e) { alert("Ошибка: " + e.message); }
+  loadStatus();
+}
+
+// ── Восстановленные функции (fix_hub_js.py) ──
+
+async function toggleJob(key, enabled) {
+  try {
+    await fetch("/api/hub_job_save", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key, enabled: !!enabled})
+    });
+  } catch (e) { alert("Не удалось: " + e.message); }
+  loadStatus();
+}
+
+async function saveInterval(key, value) {
+  const n = parseInt(value, 10);
+  if (!n || n < 5) { alert("Минимум 5 минут"); loadStatus(); return; }
+  try {
+    await fetch("/api/hub_job_save", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key, interval: n})
+    });
+  } catch (e) { alert("Не удалось: " + e.message); }
+  loadStatus();
+}
+
+async function runNow(key) {
+  if (!confirm("Запустить «" + key + "» сейчас?")) return;
+  try {
+    const r = await fetch("/api/hub_run", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key})
+    });
+    const d = await r.json();
+    if (!d.ok) alert("Не удалось: " + (d.error || "?"));
+    else if (d.message) console.log(d.message);
+  } catch (e) { alert("Ошибка: " + e.message); }
+  loadStatus();
+}
+
+async function stopJob(key) {
+  if (!confirm("Остановить «" + key + "»?")) return;
+  try {
+    const r = await fetch("/api/hub_stop", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key})
+    });
+    const d = await r.json();
+    if (!d.ok) alert("Не удалось: " + (d.error || "?"));
+  } catch (e) { alert("Ошибка: " + e.message); }
+  loadStatus();
+}
+
+
+loadStatus();
+setInterval(loadStatus, 3000);
+
+// ── Streaming status (разделён) ──
+async function loadStreamStatus() {
+  try {
+    const r = await fetch("/api/stream_status");
+    if (!r.ok) return;
+    const d = await r.json();
+    const w = d.workers || {};
+    const mail = w.mail || {};
+    const feed = w.feed || {};
+
+    const elM = document.getElementById("streamMailStatus");
+    if (elM) {
+      const ok = !!mail.connected;
+      elM.className = "runner-status" + (ok ? "" : " running");
+      elM.innerHTML =
+        '<span class="dot ' + (ok ? "ok" : "warn") + '"></span>'
+        + '<span><b>IMAP:</b> ' + (ok ? "подключён" : "нет соединения")
+        + ' · <b>В ящике:</b> ' + (mail.inbox || 0)
+        + ' · <b>Всего новых:</b> ' + (mail.total_new || 0)
+        + ' · <b>Последний опрос:</b> '
+        + ((mail.last_poll || "—").replace("T"," ").slice(11,19))
+        + (mail.last_error ? ' · <span style="color:#ff5f6d">'
+              + mail.last_error.slice(0, 60) + '</span>' : '')
+        + '</span>';
+    }
+
+    const elF = document.getElementById("streamFeedStatus");
+    if (elF) {
+      const ok = !feed.last_error;
+      elF.className = "runner-status" + (ok ? "" : " running");
+      elF.innerHTML =
+        '<span class="dot ' + (ok ? "ok" : "warn") + '"></span>'
+        + '<span><b>Источников:</b> ' + (feed.sources || 0)
+        + ' · <b>Обновлений:</b> ' + (feed.total_new || 0)
+        + ' · <b>Последний опрос:</b> '
+        + ((feed.last_poll || "—").replace("T"," ").slice(11,19))
+        + (feed.last_error ? ' · <span style="color:#ff5f6d">'
+              + feed.last_error.slice(0, 60) + '</span>' : '')
+        + '</span>';
+    }
+  } catch (_) {}
+}
+loadStreamStatus();
+setInterval(loadStreamStatus, 5000);
+
+</script>
+</body>
+</html>

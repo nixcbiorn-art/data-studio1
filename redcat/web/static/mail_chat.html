@@ -1,0 +1,2723 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Почта — чат · RedCat Studio</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b;
+          --fg:#e6e8ec; --dim:#8b93a7; --accent:#4c8dff;
+          --ok:#3ddc84; --warn:#ffb347; --err:#ff5f6d; --line:#262b36; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+         display: flex; flex-direction: column; }
+  header { padding: 12px 20px; border-bottom: 1px solid var(--line);
+           display: flex; align-items: center; gap: 16px;
+           background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { color: var(--dim); text-decoration: none; font-size: 13px; }
+  header a:hover { color: var(--fg); }
+  header .spacer { flex: 1; }
+  header .badge { font-size: 12px; color: var(--dim); padding: 3px 8px;
+                  border: 1px solid var(--line); border-radius: 10px; }
+  header .badge.ok { color: var(--ok); border-color: rgba(61,220,132,.4); }
+
+  #periodBar { padding: 8px 20px; background: #14181f;
+               border-bottom: 1px solid var(--line);
+               display: flex; gap: 8px; align-items: center;
+               flex-wrap: wrap; font-size: 13px; }
+  #periodBar .period-btn { background: var(--panel2);
+    border: 1px solid var(--line); color: var(--fg);
+    padding: 5px 12px; border-radius: 14px; cursor: pointer;
+    font: inherit; font-size: 12px; }
+  #periodBar .period-btn:hover { border-color: var(--accent); }
+  #periodBar .period-btn.active { background: var(--accent);
+    border-color: var(--accent); color: #fff; }
+  #periodBar #periodInfo { color: var(--dim); margin-left: auto;
+                            font-size: 12px; }
+
+  #filterBar { padding: 6px 20px; background: #14181f;
+               border-bottom: 1px solid var(--line);
+               display: flex; gap: 8px; align-items: center;
+               flex-wrap: wrap; font-size: 12.5px; }
+  #filterBar .flt { padding: 4px 10px; border: 1px solid var(--line);
+                    border-radius: 14px; background: var(--panel2);
+                    color: var(--dim); cursor: pointer; font: inherit;
+                    font-size: 12px; }
+  #filterBar .flt:hover { color: var(--fg); border-color: var(--accent); }
+  #filterBar .flt.on { background: rgba(76,141,255,.15);
+                       border-color: var(--accent); color: var(--fg); }
+  #filterBar .flt .cnt { color: var(--accent); font-weight: 600;
+                         margin-left: 3px; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px;
+              display: flex; flex-direction: column; gap: 14px; }
+
+  .msg { max-width: 82%; padding: 10px 14px; border-radius: 12px;
+         white-space: pre-wrap; word-wrap: break-word; font-size: 13.5px; }
+  .msg.me { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.bot { align-self: flex-start; background: var(--panel);
+             border: 1px solid var(--line); }
+
+  .msg.bot .rows { margin-top: 10px; border-top: 1px solid var(--line);
+                   padding-top: 10px; display: flex;
+                   flex-direction: column; gap: 4px; }
+  .msg.bot .row { font-size: 12.5px; display: grid;
+                  grid-template-columns: 120px 150px 1fr auto;
+                  gap: 8px; align-items: baseline;
+                  cursor: pointer; padding: 6px 8px; margin: 0 -4px;
+                  border-radius: 6px; border-left: 3px solid transparent;
+                  transition: background .12s, border-color .12s; }
+  .msg.bot .row:hover { background: rgba(76,141,255,.10);
+                        border-left-color: var(--accent); }
+  .msg.bot .row .date { color: var(--dim); }
+  .msg.bot .row .from { color: var(--dim); overflow: hidden;
+                        text-overflow: ellipsis; white-space: nowrap; }
+  .msg.bot .row .subj { color: var(--fg); }
+  .msg.bot .row .flags { color: var(--warn); font-size: 11px;
+                         white-space: nowrap; }
+
+  /* карточка письма */
+  .msg.message-card { max-width: 95% !important; padding: 0 !important;
+                      background: var(--panel2) !important;
+                      border: 1px solid var(--line); }
+  .message-card .mc-head { padding: 12px 16px 10px;
+                           border-bottom: 1px solid var(--line); }
+  .message-card .mc-subject { font-weight: 600; font-size: 14px;
+                              margin-bottom: 6px; word-break: break-word;
+                              line-height: 1.35; }
+  .message-card .mc-meta { font-size: 12px; color: var(--dim);
+                           margin-bottom: 2px; word-break: break-word; }
+  .message-card .mc-meta.dim { color: #6a7286; font-size: 11.5px; }
+  .message-card .mc-body { padding: 12px 16px; white-space: pre-wrap;
+                           word-break: break-word; max-height: 420px;
+                           overflow-y: auto;
+                           font: 12.5px/1.55 "SFMono-Regular", Consolas,
+                                 monospace; color: #d6d8de; }
+  .message-card .mc-body.loading { color: var(--dim); font-style: italic; }
+  .message-card .mc-actions { padding: 10px 16px 12px;
+                              display: flex; gap: 10px; flex-wrap: wrap;
+                              border-top: 1px solid var(--line); }
+  .message-card .mc-actions a { color: var(--accent);
+    text-decoration: none; font-size: 12.5px; padding: 6px 12px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); transition: border-color .12s; }
+  .message-card .mc-actions a:hover { border-color: var(--accent); }
+  .message-card .mc-actions a.muted { color: var(--dim); }
+
+  .message-card .mc-labels { padding: 8px 16px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .mc-lbl { padding: 4px 10px; border: 1px solid var(--line);
+    border-radius: 14px; cursor: pointer; font-size: 12px;
+    background: var(--panel); color: var(--dim); user-select: none;
+    transition: all .12s; }
+  .mc-lbl:hover { color: var(--fg); border-color: var(--accent); }
+  .mc-lbl.on { background: rgba(76,141,255,.15);
+    border-color: var(--accent); color: var(--fg); }
+
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px;
+                 padding: 10px 20px 0; }
+  .suggestions button { background: var(--panel2);
+    border: 1px solid var(--line); color: var(--dim);
+    padding: 6px 12px; border-radius: 16px; font: inherit;
+    font-size: 12px; cursor: pointer; }
+  .suggestions button:hover { color: var(--fg);
+                              border-color: var(--accent); }
+
+  form { padding: 14px 20px 20px; display: flex; gap: 10px; }
+  form input { flex: 1; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 11px 14px; color: var(--fg); font: inherit; }
+  form input:focus { outline: none; border-color: var(--accent); }
+  form button { background: var(--accent); border: 0; color: #fff;
+    padding: 0 22px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-weight: 500; }
+  form button:disabled { opacity: .5; cursor: not-allowed; }
+
+  aside { width: 320px; border-left: 1px solid var(--line);
+          padding: 20px; background: var(--panel);
+          display: flex; flex-direction: column; gap: 18px;
+          overflow-y: auto; }
+  aside h2 { font-size: 12px; text-transform: uppercase;
+             letter-spacing: .05em; color: var(--dim);
+             margin: 0 0 10px; font-weight: 600; }
+  .switch { display: flex; align-items: center; gap: 10px;
+            padding: 8px 0; }
+  .switch label { flex: 1; cursor: pointer; font-size: 13px; }
+  .switch input[type=checkbox] { accent-color: var(--accent); }
+  .field { display: flex; flex-direction: column; gap: 6px;
+           margin-bottom: 10px; }
+  .field label { color: var(--dim); font-size: 12px; }
+  .field input { background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; color: var(--fg); font: inherit; width: 100%; }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  aside button { background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); padding: 8px 14px; border-radius: 6px;
+    cursor: pointer; font: inherit; font-size: 13px; }
+  aside button:hover { border-color: var(--accent); }
+  aside button.primary { background: var(--accent);
+    border-color: var(--accent); color: #fff; }
+  aside button:disabled { opacity: .5; cursor: not-allowed; }
+  .status-line { font-size: 12px; color: var(--dim);
+                 display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%;
+         background: var(--dim); }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.err { background: var(--err); }
+
+  @media (max-width: 900px) {
+    aside { width: 100%; border-left: 0;
+            border-top: 1px solid var(--line); }
+    main { flex-direction: column; }
+  }
+
+  /* ── кнопка переключения «Список / Дерево» ── */
+  #periodBar .view-toggle {
+    margin-left: 16px;
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 14px; overflow: hidden;
+  }
+  #periodBar .view-toggle button {
+    background: transparent; border: 0; color: var(--dim);
+    padding: 5px 12px; cursor: pointer; font: inherit;
+    font-size: 12px;
+  }
+  #periodBar .view-toggle button.active {
+    background: var(--accent); color: #fff;
+  }
+  #periodBar .view-toggle button:hover:not(.active) {
+    color: var(--fg);
+  }
+
+  /* ── дерево тредов ── */
+  .thread {
+    margin: 8px 0; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--panel);
+    overflow: hidden;
+  }
+  .thread-head {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 14px; cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .thread-head:hover {
+    background: rgba(76,141,255,.08);
+    border-left-color: var(--accent);
+  }
+  .thread-head.open { border-left-color: var(--accent); }
+  .thread-head .arrow {
+    color: var(--dim); font-size: 11px;
+    width: 12px; flex: 0 0 12px;
+    transition: transform .15s;
+  }
+  .thread-head.open .arrow { transform: rotate(90deg); }
+  .thread-head .count {
+    background: rgba(76,141,255,.15); color: var(--accent);
+    font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    margin-left: 4px;
+  }
+  .thread-head .unseen-badge {
+    background: rgba(255,179,71,.15); color: var(--warn);
+    font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    margin-left: 4px;
+  }
+  .thread-head .subj {
+    flex: 1; font-weight: 500; font-size: 13px;
+    color: var(--fg); word-break: break-word;
+    min-width: 0;
+  }
+  .thread-head .meta {
+    color: var(--dim); font-size: 11.5px;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .thread-body {
+    display: none; border-top: 1px solid var(--line);
+    background: var(--panel2);
+  }
+  .thread-body.open { display: block; }
+  .thread-msg {
+    display: grid;
+    grid-template-columns: 130px 170px 1fr auto;
+    gap: 8px; padding: 8px 14px 8px 30px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px; cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .thread-msg:last-child { border-bottom: 0; }
+  .thread-msg:hover {
+    background: rgba(76,141,255,.10);
+    border-left-color: var(--accent);
+  }
+  .thread-msg .date { color: var(--dim); }
+  .thread-msg .from {
+    color: var(--dim); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .thread-msg .subj {
+    color: var(--fg); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .thread-msg .flags {
+    color: var(--warn); font-size: 11px; white-space: nowrap;
+  }
+  .thread-msg .lbls {
+    color: var(--accent); font-size: 11px;
+    white-space: nowrap; margin-left: 3px;
+  }
+
+
+  /* ── Модальное окно письма ── */
+  #modalOverlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, .55);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 32px;
+  }
+  #modalOverlay.open { display: flex; }
+
+  #modalWindow {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+    width: 100%; max-width: 880px;
+    max-height: calc(100vh - 64px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  #modalHead {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  #modalHead .mc-title { flex: 1; min-width: 0; }
+  #modalHead .mc-subject {
+    font-weight: 600; font-size: 15px;
+    margin-bottom: 6px; word-break: break-word;
+    line-height: 1.35; color: var(--fg);
+  }
+  #modalHead .mc-meta {
+    font-size: 12.5px; color: var(--dim);
+    word-break: break-word; margin-bottom: 2px;
+  }
+  #modalHead .mc-meta.dim { color: #6a7286; font-size: 11.5px; }
+  #modalHead .mc-cache-note {
+    font-size: 11px; color: #6a7286; margin-top: 4px;
+  }
+  #modalHead .mc-cache-note a {
+    color: var(--accent); text-decoration: none;
+  }
+  #modalHead .mc-cache-note a:hover { text-decoration: underline; }
+  #modalClose {
+    flex: 0 0 auto;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--dim); font-size: 18px; line-height: 1;
+    width: 32px; height: 32px; border-radius: 6px;
+    cursor: pointer; transition: all .12s;
+  }
+  #modalClose:hover { color: var(--fg); border-color: var(--err); }
+
+  #modalNav {
+    display: flex; gap: 6px; align-items: center;
+    padding: 6px 20px; background: #14181f;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px; color: var(--dim);
+  }
+  #modalNav button {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--dim); padding: 3px 10px; border-radius: 12px;
+    cursor: pointer; font: inherit; font-size: 12px;
+  }
+  #modalNav button:hover { color: var(--fg); border-color: var(--accent); }
+  #modalNav button:disabled { opacity: .4; cursor: not-allowed; }
+  #modalNav .nav-info { margin-left: auto; }
+
+  #modalBody {
+    padding: 16px 20px;
+    white-space: pre-wrap; word-break: break-word;
+    overflow-y: auto; flex: 1;
+    font: 13px/1.6 "SFMono-Regular", Consolas, monospace;
+    color: #d6d8de;
+    min-height: 100px;
+  }
+  #modalBody.loading { color: var(--dim); font-style: italic; }
+
+  #modalLabels {
+    padding: 10px 20px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+    background: var(--panel);
+  }
+  #modalLabels .lbl {
+    padding: 5px 12px; border: 1px solid var(--line);
+    border-radius: 14px; cursor: pointer; font-size: 12.5px;
+    background: var(--panel2); color: var(--dim);
+    user-select: none; transition: all .12s;
+  }
+  #modalLabels .lbl:hover { color: var(--fg); border-color: var(--accent); }
+  #modalLabels .lbl.on {
+    background: rgba(76, 141, 255, .15);
+    border-color: var(--accent); color: var(--fg);
+  }
+
+  #modalActions {
+    padding: 12px 20px 16px;
+    display: flex; gap: 10px; flex-wrap: wrap;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  #modalActions a {
+    color: var(--accent); text-decoration: none;
+    font-size: 13px; padding: 8px 14px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel2);
+    transition: border-color .12s, background .12s;
+    cursor: pointer;
+  }
+  #modalActions a:hover {
+    border-color: var(--accent);
+    background: rgba(76, 141, 255, .08);
+  }
+  #modalActions a.muted { color: var(--dim); }
+  #modalActions a.muted:hover { color: var(--fg); }
+
+
+  /* ── Поле ответа в модальном окне ── */
+  #modalReply {
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    padding: 0;
+    display: none;
+  }
+  #modalReply.open { display: block; }
+
+  #modalReplyToggle {
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; user-select: none;
+    font-size: 13px; color: var(--dim);
+    border-bottom: 1px solid var(--line);
+    transition: background .12s;
+  }
+  #modalReplyToggle:hover { background: rgba(76,141,255,.06); color: var(--fg); }
+  #modalReplyToggle .arrow {
+    font-size: 11px; transition: transform .15s; display: inline-block;
+  }
+  #modalReplyToggle.open .arrow { transform: rotate(90deg); }
+  #modalReplyToggle .sub {
+    margin-left: auto; color: #6a7286; font-size: 11.5px;
+  }
+
+  #modalReplyBody { padding: 12px 20px 16px; }
+
+  #modalReplyToolbar {
+    display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap; margin-bottom: 8px;
+  }
+  #modalReplyToolbar select {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); font: inherit; font-size: 12.5px;
+    padding: 6px 10px; border-radius: 6px;
+    flex: 0 1 auto; min-width: 160px;
+    cursor: pointer;
+  }
+  #modalReplyToolbar select:focus { outline: none; border-color: var(--accent); }
+
+  #modalReplyText {
+    width: 100%; min-height: 140px;
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); font: 13px/1.55 "SFMono-Regular", Consolas, monospace;
+    padding: 10px 12px; border-radius: 6px;
+    resize: vertical;
+  }
+  #modalReplyText:focus { outline: none; border-color: var(--accent); }
+
+  #modalReplyActions {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+    align-items: center;
+  }
+  #modalReplyActions button,
+  #modalReplyActions a {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); padding: 8px 14px; border-radius: 6px;
+    cursor: pointer; font: inherit; font-size: 13px;
+    text-decoration: none; display: inline-block;
+    transition: border-color .12s, background .12s;
+  }
+  #modalReplyActions button:hover,
+  #modalReplyActions a:hover {
+    border-color: var(--accent); background: rgba(76,141,255,.08);
+  }
+  #modalReplyActions a.primary {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  #modalReplyActions a.primary:hover { background: #5a97ff; }
+  #modalReplyActions .reply-status {
+    color: var(--ok); font-size: 12px; margin-left: auto;
+    opacity: 0; transition: opacity .2s;
+  }
+  #modalReplyActions .reply-status.show { opacity: 1; }
+
+
+  /* ── Кнопка «Новое письмо» ── */
+  #btnCompose {
+    background: var(--accent); border: 1px solid var(--accent);
+    color: #fff; padding: 6px 14px; border-radius: 6px;
+    cursor: pointer; font: inherit; font-size: 13px;
+    transition: background .12s;
+  }
+  #btnCompose:hover { background: #5a97ff; }
+  header .spacer { flex: 1; }
+
+  /* ── Модальное окно «Новое письмо» ── */
+  #composeOverlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, .55);
+    backdrop-filter: blur(2px);
+    z-index: 1100;
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 32px;
+  }
+  #composeOverlay.open { display: flex; }
+
+  #composeWindow {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+    width: 100%; max-width: 780px;
+    max-height: calc(100vh - 64px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  #composeHead {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  #composeHead h2 {
+    font-size: 15px; margin: 0; flex: 1; color: var(--fg);
+  }
+  #composeClose {
+    flex: 0 0 auto;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--dim); font-size: 18px; line-height: 1;
+    width: 32px; height: 32px; border-radius: 6px;
+    cursor: pointer; transition: all .12s;
+  }
+  #composeClose:hover { color: var(--fg); border-color: var(--err); }
+
+  #composeBody {
+    padding: 16px 20px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .cmp-field { display: flex; flex-direction: column; gap: 5px; }
+  .cmp-field label {
+    color: var(--dim); font-size: 12px;
+  }
+  .cmp-field input,
+  .cmp-field textarea,
+  .cmp-field select {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); font: inherit;
+    padding: 9px 12px; border-radius: 6px;
+    width: 100%;
+  }
+  .cmp-field input:focus,
+  .cmp-field textarea:focus,
+  .cmp-field select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .cmp-field textarea {
+    min-height: 200px; resize: vertical;
+    font: 13px/1.55 "SFMono-Regular", Consolas, monospace;
+  }
+
+  #composeToolbar {
+    display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap;
+  }
+  #composeToolbar select { flex: 1 1 200px; }
+
+  #composeActions {
+    padding: 12px 20px 16px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 10px; flex-wrap: wrap;
+    align-items: center;
+    background: var(--panel);
+  }
+  #composeActions button,
+  #composeActions a {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--fg); padding: 9px 16px; border-radius: 6px;
+    cursor: pointer; font: inherit; font-size: 13px;
+    text-decoration: none; display: inline-block;
+    transition: border-color .12s, background .12s;
+  }
+  #composeActions button:hover,
+  #composeActions a:hover {
+    border-color: var(--accent);
+    background: rgba(76,141,255,.08);
+  }
+  #composeActions a.primary {
+    background: var(--accent);
+    border-color: var(--accent); color: #fff;
+  }
+  #composeActions a.primary:hover { background: #5a97ff; }
+  #composeActions .status {
+    color: var(--ok); font-size: 12px; margin-left: auto;
+    opacity: 0; transition: opacity .2s;
+  }
+  #composeActions .status.show { opacity: 1; }
+  #composeActions .hint {
+    color: #6a7286; font-size: 11.5px; flex-basis: 100%;
+    margin-top: 4px;
+  }
+
+
+  /* ── Кнопка «Контакты» в шапке ── */
+  #btnContacts {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--dim); padding: 6px 12px; border-radius: 6px;
+    cursor: pointer; font: inherit; font-size: 13px;
+    margin-left: 8px; white-space: nowrap;
+  }
+  #btnContacts:hover { color: var(--fg); border-color: var(--accent); }
+
+  /* ── Модальное окно контактов ── */
+  #contactsOverlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+    z-index: 1150; display: none;
+    align-items: center; justify-content: center; padding: 32px;
+  }
+  #contactsOverlay.open { display: flex; }
+  #contactsWindow {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    width: 100%; max-width: 640px; max-height: calc(100vh - 64px);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #contactsHead {
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel);
+  }
+  #contactsHead h2 { font-size: 15px; margin: 0; flex: 1; color: var(--fg); }
+  #contactsClose {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--dim); font-size: 18px; line-height: 1;
+    width: 32px; height: 32px; border-radius: 6px; cursor: pointer;
+  }
+  #contactsClose:hover { color: var(--fg); border-color: var(--err); }
+
+  #contactsSearch {
+    padding: 12px 20px; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  #contactsSearch input {
+    width: 100%; background: var(--panel2);
+    border: 1px solid var(--line); color: var(--fg);
+    font: inherit; padding: 10px 14px; border-radius: 6px;
+  }
+  #contactsSearch input:focus { outline: none; border-color: var(--accent); }
+  #contactsSearch .info {
+    color: var(--dim); font-size: 11.5px; margin-top: 6px;
+  }
+
+  #contactsList {
+    overflow-y: auto; flex: 1; min-height: 100px;
+  }
+  .contact-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 10px; align-items: baseline;
+    padding: 10px 20px; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+    transition: background .12s, border-color .12s;
+    border-left: 3px solid transparent;
+  }
+  .contact-row:hover {
+    background: rgba(76,141,255,.08);
+    border-left-color: var(--accent);
+  }
+  .contact-row .em {
+    color: var(--fg); font-size: 13.5px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    word-break: break-all;
+  }
+  .contact-row .nm {
+    color: var(--dim); font-size: 12px; margin-top: 2px;
+  }
+  .contact-row .cnt {
+    color: var(--accent); font-size: 12px;
+  }
+  .contact-row .last {
+    color: #6a7286; font-size: 11.5px;
+  }
+
+  /* ── Автодополнение в composeTo ── */
+  .autocomplete-wrap { position: relative; }
+  #composeToSuggest {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: var(--panel2); border: 1px solid var(--accent);
+    border-top: 0; border-radius: 0 0 6px 6px;
+    max-height: 240px; overflow-y: auto; z-index: 10;
+    display: none;
+  }
+  #composeToSuggest.open { display: block; }
+  #composeToSuggest .ac-row {
+    padding: 8px 12px; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  #composeToSuggest .ac-row:last-child { border-bottom: 0; }
+  #composeToSuggest .ac-row:hover,
+  #composeToSuggest .ac-row.active {
+    background: rgba(76,141,255,.15);
+  }
+  #composeToSuggest .ac-row .em {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    color: var(--fg);
+  }
+  #composeToSuggest .ac-row .nm {
+    color: var(--dim); font-size: 11.5px; margin-left: 8px;
+  }
+
+</style>
+<link rel="stylesheet" href="/_nav.css">
+</head>
+<body>
+
+<header>
+  <h1>Почта — чат</h1>
+  <a href="/mail_settings.html">Настройки IMAP →</a>
+  <a href="/mail_templates.html">Шаблоны →</a>
+  <div class="spacer"></div>
+  <button id="btnCompose" title="Написать первым">✉️ Новое письмо</button>
+  <button id="btnContacts" title="Адреса из писем">👥 Контакты</button>
+  <span class="badge" id="statusBadge">…</span>
+</header>
+
+<div id="periodBar">
+  <span style="color:#8b93a7;">Срок сбора:</span>
+  <button class="period-btn" data-days="1">Сутки</button>
+  <button class="period-btn" data-days="7">Неделя</button>
+  <button class="period-btn" data-days="30">Месяц</button>
+  <button class="period-btn" data-days="90">3 месяца</button>
+  <button class="period-btn" data-days="365">Год</button>
+  <span class="view-toggle"><button data-view="list" class="active">📋 Список</button><button data-view="tree">🌲 Дерево</button><button data-view="contacts">🌳 Контакты</button></span>
+  <span id="periodInfo"></span>
+</div>
+
+<div id="filterBar">
+  <span style="color:#8b93a7;margin-right:6px;">Метки:</span>
+  <button class="flt" data-label="star">⭐ Важное<span class="cnt"></span></button>
+  <button class="flt" data-label="reply">📩 Ответить<span class="cnt"></span></button>
+  <button class="flt" data-label="done">✅ Готово<span class="cnt"></span></button>
+  <button class="flt" data-label="todo">📌 В работу<span class="cnt"></span></button>
+  <button class="flt" data-label="spam">🚫 Спам<span class="cnt"></span></button>
+  <button class="flt" id="filterReset"
+          style="margin-left:auto;color:#8b93a7;">сбросить</button>
+</div>
+
+<main>
+  <section class="chat">
+    <div class="messages" id="messages">
+      <div class="msg bot">
+Спросите про почту: «сколько за неделю», «от иван@…», «тема заказ»,
+«непрочитанные», «с вложениями», «топ 5 отправителей», «сводка», «последние 10».
+Или просто напишите слово — найду его в теме или адресе.
+      </div>
+    </div>
+    <div class="suggestions" id="suggestions"></div>
+    <form id="form" onsubmit="return false;">
+      <input id="input" placeholder="Спросите что-нибудь про письма…"
+             autocomplete="off" autofocus>
+      <button type="submit" id="sendBtn">Отправить</button>
+    </form>
+  </section>
+
+  <aside>
+    <div>
+      <h2>Сбор и уведомления</h2>
+      <div class="status-line">
+        <span class="dot" id="schedDot"></span>
+        <span id="schedText">Загружаю…</span>
+      </div>
+      <div class="switch">
+        <input type="checkbox" id="enabled">
+        <label for="enabled">Собирать автоматически</label>
+      </div>
+      <div class="field">
+        <label for="interval">Интервал, минут</label>
+        <input id="interval" type="number" min="5" max="1440" value="60">
+      </div>
+      <div class="switch">
+        <input type="checkbox" id="notifyNew">
+        <label for="notifyNew">Уведомлять о новых письмах</label>
+      </div>
+      <div class="status-line" style="margin-top:6px;">
+        <span class="dot" id="tgDot"></span>
+        <span id="tgText">Telegram…</span>
+      </div>
+      <div class="btns" style="margin-top:12px;">
+        <button class="primary" id="saveSchedBtn">Сохранить</button>
+        <button id="testTgBtn">Тест Telegram</button>
+      </div>
+      <div class="btns" style="margin-top:8px;">
+        <button id="runNowBtn">Собрать сейчас</button>
+      </div>
+    </div>
+
+    <div>
+      <h2>Последний запуск</h2>
+      <div class="status-line" id="lastRun">—</div>
+    </div>
+  </aside>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const messagesEl = $("messages");
+const inputEl = $("input");
+const sendBtn = $("sendBtn");
+
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── Добавить сообщение в чат ──
+function addMsg(text, who, rows) {
+  const div = document.createElement("div");
+  div.className = "msg " + who;
+  if (text) {
+    const t = document.createElement("div");
+    t.textContent = text;
+    div.appendChild(t);
+  }
+  if (rows && rows.length) {
+    const rw = document.createElement("div");
+    rw.className = "rows";
+    for (const r of rows) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.title = r.message_id ? "Открыть письмо" : "";
+      row.innerHTML =
+        `<span class="date">${escapeHtml(r.date || "")}</span>` +
+        `<span class="from">${escapeHtml(r.from || "")}</span>` +
+        `<span class="subj">${escapeHtml(r.subject || "")}</span>` +
+        `<span class="flags">${escapeHtml(r.flags || "")}</span>`;
+      if (r.message_id) {
+        row.onclick = () => openMessage(r.message_id, rows.map(x => x.message_id).filter(Boolean));
+      }
+      rw.appendChild(row);
+    }
+    div.appendChild(rw);
+  }
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// ── Открыть письмо: карточка прямо в чате ──
+async function openMessage(messageId) {
+  if (!messageId) return;
+
+  const card = document.createElement("div");
+  card.className = "msg bot message-card";
+  card.innerHTML =
+    '<div class="mc-head">' +
+    '<div class="mc-subject">Загружаю письмо…</div>' +
+    '<div class="mc-meta dim">' + escapeHtml(messageId) + '</div>' +
+    '</div>' +
+    '<div class="mc-body loading">Читаю тело из IMAP, подождите…</div>';
+  messagesEl.appendChild(card);
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  try {
+    const url = "/api/mail_message?message_id="
+      + encodeURIComponent(messageId) + "&with_body=1";
+    const r = await fetch(url);
+    let d = null;
+    try { d = await r.json(); } catch (_) {}
+    if (!r.ok) {
+      const msg = (d && (d.error || d.message)) || ("HTTP " + r.status);
+      throw new Error(msg);
+    }
+    renderCard(card, d, messageId);
+  } catch (e) {
+    card.innerHTML =
+      '<div class="mc-head">' +
+      '<div class="mc-subject">Ошибка загрузки</div>' +
+      '<div class="mc-meta dim">' + escapeHtml(e.message) + '</div>' +
+      '</div>';
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function renderCard(card, d, messageId) {
+  const m = d.message || {};
+  const body = (d.body && d.body.body) || "";
+  const bodyErr = d.body_error;
+
+  const subj = m.subject || "(без темы)";
+  const sender = (m.from_name ? m.from_name + " " : "") +
+    (m.from_addr ? "<" + m.from_addr + ">" : "");
+  const dateStr = (m.date || "").replace("T", " ").slice(0, 16);
+  const metaBits = [dateStr, m.folder || "INBOX"];
+  if (m.uid) metaBits.push("UID " + m.uid);
+  if (m.attachments) metaBits.push("вложений: " + m.attachments);
+  metaBits.push(m.seen ? "прочитано" : "новое");
+
+  let replyUrl = "";
+  if (m.from_addr) {
+    const sub = m.subject ? ("Re: " + m.subject) : "";
+    replyUrl = "https://mail.yandex.ru/compose?to="
+      + encodeURIComponent(m.from_addr)
+      + (sub ? "&subject=" + encodeURIComponent(sub) : "");
+  }
+  const viewUrl = "/mail_view.html?message_id="
+    + encodeURIComponent(m.message_id || messageId);
+
+  const bodyClass = bodyErr
+    ? "" : (body ? "" : "loading");
+  const bodyText = bodyErr
+    ? "Ошибка чтения тела: " + bodyErr
+    : (body ? body : "(тело письма пустое)");
+
+  // Метки
+  const LABELS = {
+    star:  { icon: "⭐", title: "Важное" },
+    reply: { icon: "📩", title: "Ответить" },
+    done:  { icon: "✅", title: "Готово" },
+    todo:  { icon: "📌", title: "В работу" },
+    spam:  { icon: "🚫", title: "Спам" },
+  };
+  const labels = m.labels || [];  // из базы, если подтягиваем
+  const labelBtns = Object.entries(LABELS).map(([k, v]) => {
+    const on = labels.includes(k) ? " on" : "";
+    return `<span class="mc-lbl${on}" data-label="${k}" data-mid="${
+      escapeHtml(m.message_id || messageId)}">${
+      v.icon} ${v.title}</span>`;
+  }).join("");
+
+  card.innerHTML =
+    '<div class="mc-head">' +
+      '<div class="mc-subject">' + escapeHtml(subj) + '</div>' +
+      '<div class="mc-meta">' + escapeHtml(sender) + '</div>' +
+      '<div class="mc-meta dim">' + escapeHtml(metaBits.join(" · ")) + '</div>' +
+    '</div>' +
+    '<div class="mc-body ' + bodyClass + '">' + escapeHtml(bodyText) + '</div>' +
+    '<div class="mc-labels">' + labelBtns + '</div>' +
+    '<div class="mc-actions">' +
+      (replyUrl
+        ? `<a href="${escapeHtml(replyUrl)}" target="_blank" rel="noopener">✉️ Ответить в Яндекс.Почте</a>`
+        : "") +
+      `<a href="#" class="mc-refresh" data-mid="${escapeHtml(m.message_id || messageId)}">🔄 Обновить</a>` +
+      `<a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener" class="muted">Открыть в отдельной вкладке</a>` +
+    '</div>';
+}
+
+// ── Обновить тело из IMAP ──
+document.addEventListener("click", async (e) => {
+  const rf = e.target.closest(".mc-refresh");
+  if (rf) {
+    e.preventDefault();
+    const mid = rf.dataset.mid;
+    if (!mid) return;
+    const card = rf.closest(".message-card");
+    try {
+      const url = "/api/mail_message?message_id="
+        + encodeURIComponent(mid) + "&with_body=1&refresh=1";
+      const r = await fetch(url);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+      if (card) renderCard(card, d, mid);
+    } catch (err) {
+      alert("Не удалось обновить: " + err.message);
+    }
+    return;
+  }
+});
+
+// ── Клики по меткам в карточке ──
+document.addEventListener("click", async (e) => {
+  const lbl = e.target.closest(".mc-lbl[data-label]");
+  if (lbl) {
+    const on = lbl.classList.toggle("on");
+    const action = on ? "mail_label_add" : "mail_label_remove";
+    try {
+      await fetch("/api/" + action, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message_id: lbl.dataset.mid,
+          label: lbl.dataset.label,
+        }),
+      });
+      loadLabelCounts();
+    } catch (_) {}
+  }
+});
+
+// ── Фильтр по метке ──
+document.querySelectorAll("#filterBar .flt[data-label]").forEach(b => {
+  b.onclick = () => {
+    const on = b.classList.toggle("on");
+    if (on) send("label:" + b.dataset.label);
+  };
+});
+const filterReset = $("filterReset");
+if (filterReset) {
+  filterReset.onclick = () => {
+    document.querySelectorAll("#filterBar .flt.on")
+      .forEach(b => b.classList.remove("on"));
+    send("последние 20");
+  };
+}
+
+// ── Отправить запрос в чат ──
+async function send(text) {
+  if (!text.trim()) return;
+  addMsg(text, "me");
+  inputEl.value = "";
+  sendBtn.disabled = true;
+  try {
+    const r = await fetch("/api/mail_chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    addMsg(data.text || "(пусто)", "bot", data.rows);
+    if (data.suggestions) renderSuggestions(data.suggestions);
+  } catch (e) {
+    addMsg("Ошибка: " + e.message, "bot");
+  } finally {
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+function renderSuggestions(list) {
+  const el = $("suggestions");
+  el.innerHTML = "";
+  for (const s of (list || [])) {
+    const b = document.createElement("button");
+    b.textContent = s;
+    b.type = "button";
+    b.onclick = () => send(s);
+    el.appendChild(b);
+  }
+}
+
+$("sendBtn").onclick = () => send(inputEl.value);
+$("form").onsubmit = (e) => { e.preventDefault(); send(inputEl.value); };
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send(inputEl.value);
+  }
+});
+
+// ── Срок сбора ──
+async function loadPeriod() {
+  try {
+    const r = await fetch("/api/source?file=mail_inbox.json");
+    if (!r.ok) return;
+    const d = await r.json();
+    const spec = JSON.parse(d.content || "{}");
+    const m = /since_days=(\d+)/.exec(spec.url || "");
+    const days = m ? parseInt(m[1], 10) : 30;
+    highlightPeriod(days);
+    $("periodInfo").textContent = "сейчас: " + days + " дн.";
+  } catch (_) {}
+}
+function highlightPeriod(days) {
+  document.querySelectorAll("#periodBar .period-btn").forEach(b => {
+    b.classList.toggle("active", parseInt(b.dataset.days, 10) === days);
+  });
+}
+document.querySelectorAll("#periodBar .period-btn").forEach(b => {
+  b.onclick = async () => {
+    const days = parseInt(b.dataset.days, 10);
+    if (!confirm("Переключить срок сбора на " + days +
+                 " дн. и запустить сбор сейчас?")) return;
+    try {
+      const r = await fetch("/api/mail_period_save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days, collect: true }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        highlightPeriod(days);
+        $("periodInfo").textContent = "сбор запущен, " + days + " дн.";
+        addMsg("Переключил срок сбора на " + days + " дн., запустил сбор.",
+               "bot");
+      } else {
+        addMsg("Ошибка: " + (d.error || "не переключилось"), "bot");
+      }
+    } catch (err) {
+      addMsg("Ошибка: " + err.message, "bot");
+    }
+  };
+});
+
+// ── Статус планировщика ──
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/mail_notify_status");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+    $("enabled").checked = !!s.enabled;
+    $("interval").value = s.interval_minutes || 60;
+    $("notifyNew").checked = !!s.notify_new;
+
+    const dot = $("schedDot"), txt = $("schedText");
+    dot.className = "dot";
+    if (s.enabled) {
+      dot.classList.add("ok");
+      txt.textContent = "Включено, каждые " + s.interval_minutes + " мин";
+    } else {
+      dot.classList.add("warn");
+      txt.textContent = "Выключено";
+    }
+
+    const tgDot = $("tgDot"), tgTxt = $("tgText");
+    tgDot.className = "dot";
+    if (s.telegram_ready) {
+      tgDot.classList.add("ok");
+      tgTxt.textContent = "Telegram настроен";
+    } else {
+      tgDot.classList.add("warn");
+      tgTxt.textContent = "Telegram не настроен";
+    }
+
+    $("lastRun").textContent = s.last_run
+      ? "Был: " + s.last_run.replace("T", " ")
+      : "Ещё не запускался";
+  } catch (e) {
+    $("schedText").textContent = "Ошибка: " + e.message;
+  }
+}
+
+$("saveSchedBtn").onclick = async () => {
+  $("saveSchedBtn").disabled = true;
+  try {
+    const r = await fetch("/api/mail_notify_save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("enabled").checked,
+        notify_new: $("notifyNew").checked,
+        interval_minutes: parseInt($("interval").value, 10) || 60,
+      }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    await loadStatus();
+  } catch (e) {
+    alert("Не сохранилось: " + e.message);
+  } finally {
+    $("saveSchedBtn").disabled = false;
+  }
+};
+
+$("testTgBtn").onclick = async () => {
+  $("testTgBtn").disabled = true;
+  try {
+    const r = await fetch("/api/mail_notify_test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const d = await r.json();
+    if (d.ok) alert("✅ Тестовое сообщение отправлено.");
+    else alert("❌ " + (d.error || "не отправилось"));
+  } catch (e) {
+    alert("❌ " + e.message);
+  } finally {
+    $("testTgBtn").disabled = false;
+  }
+};
+
+$("runNowBtn").onclick = async () => {
+  $("runNowBtn").disabled = true;
+  try {
+    const r = await fetch("/api/mail_run_now", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const n = d.notify && d.notify.new;
+      alert(n ? "✅ Сбор прошёл, новых писем: " + n : "✅ Сбор прошёл.");
+      await loadStatus();
+    } else {
+      alert("❌ " + (d.reason || "не удалось"));
+    }
+  } catch (e) {
+    alert("❌ " + e.message);
+  } finally {
+    $("runNowBtn").disabled = false;
+  }
+};
+
+// ── Метки: счётчики ──
+async function loadLabelCounts() {
+  try {
+    const r = await fetch("/api/mail_labels_list");
+    if (!r.ok) return;
+    const d = await r.json();
+    for (const [k, n] of Object.entries(d.counts || {})) {
+      const el = document.querySelector(
+        '#filterBar .flt[data-label="' + k + '"] .cnt');
+      if (el) el.textContent = n ? n : "";
+    }
+  } catch (_) {}
+}
+
+// ── Подсказки ──
+async function loadInfo() {
+  try {
+    const r = await fetch("/api/mail_chat_info");
+    if (r.ok) {
+      const d = await r.json();
+      renderSuggestions(d.suggestions);
+    }
+  } catch (_) {}
+}
+
+loadInfo();
+loadStatus();
+loadPeriod();
+loadLabelCounts();
+
+// ── Дерево тредов ──
+let VIEW_MODE = "list";   // "list" | "tree"
+let CURRENT_DAYS = 90;
+
+function switchView(mode) {
+  if (mode === VIEW_MODE) return;
+  VIEW_MODE = mode;
+  document.querySelectorAll("#periodBar .view-toggle button").forEach(b => {
+    b.classList.toggle("active", b.dataset.view === mode);
+  });
+  if (mode === "tree") {
+    loadThreads();
+  } else if (mode === "contacts") {
+    loadContactsTree();
+  } else if (mode === "contacts") {
+    loadContactsTree();
+  }
+}
+
+async function loadThreads() {
+  addMsg("🌲 Загружаю дерево тредов (" + CURRENT_DAYS + " дн.)…", "bot");
+  try {
+    const r = await fetch("/api/mail_threads?days=" + CURRENT_DAYS
+                          + "&min_size=1");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    renderThreads(d);
+  } catch (e) {
+    addMsg("Ошибка дерева: " + e.message, "bot");
+  }
+}
+
+function renderThreads(d) {
+  const div = document.createElement("div");
+  div.className = "msg bot";
+
+  const head = document.createElement("div");
+  head.style.marginBottom = "10px";
+  head.innerHTML =
+    "<b>🌲 Дерево тредов</b> — " + d.total_threads + " цепочек, " +
+    d.total_messages + " писем за " + d.window_days + " дней";
+  div.appendChild(head);
+
+  const threads = d.threads || [];
+  if (!threads.length) {
+    const empty = document.createElement("div");
+    empty.style.color = "#8b93a7";
+    empty.textContent = "Пусто.";
+    div.appendChild(empty);
+  }
+
+  for (const t of threads) {
+    div.appendChild(buildThread(t));
+  }
+
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function buildThread(t) {
+  const box = document.createElement("div");
+  box.className = "thread";
+
+  const head = document.createElement("div");
+  head.className = "thread-head";
+  if (t.unseen > 0) {
+    head.style.borderLeftColor = "#ffb347";
+  }
+
+  const subj = escapeHtml(t.subject || "(без темы)");
+  const countBadge = t.count > 1
+    ? '<span class="count">' + t.count + "</span>" : "";
+  const unseenBadge = t.unseen > 0
+    ? '<span class="unseen-badge">' + t.unseen + " новых</span>" : "";
+  const when = (t.last_date || "").replace("T", " ").slice(0, 16);
+  const senders = (t.senders || []).slice(0, 2).join(", ")
+    + (t.senders && t.senders.length > 2
+        ? " +" + (t.senders.length - 2) : "");
+
+  head.innerHTML =
+    '<span class="arrow">▶</span>' +
+    '<span class="subj">' + subj + countBadge + unseenBadge + '</span>' +
+    '<span class="meta">' + escapeHtml(senders) + " · " +
+    escapeHtml(when) + "</span>";
+
+  const body = document.createElement("div");
+  body.className = "thread-body";
+
+  for (const m of t.messages) {
+    const row = document.createElement("div");
+    row.className = "thread-msg";
+    row.title = "Открыть письмо";
+    row.innerHTML =
+      '<span class="date">' + escapeHtml((m.date || "").replace("T", " ").slice(0, 16)) + "</span>" +
+      '<span class="from">' + escapeHtml(m.from_name || m.from_addr || "?") + "</span>" +
+      '<span class="subj">' + escapeHtml(m.subject || "") + "</span>" +
+      '<span class="flags">' + escapeHtml(getFlags(m)) + "</span>";
+    row.onclick = (e) => {
+      e.stopPropagation();
+      openMessage(m.message_id, t.messages.map(x => x.message_id).filter(Boolean));
+    };
+    body.appendChild(row);
+  }
+
+  head.onclick = () => {
+    head.classList.toggle("open");
+    body.classList.toggle("open");
+  };
+
+  box.appendChild(head);
+  box.appendChild(body);
+  return box;
+}
+
+function getFlags(m) {
+  const bits = [];
+  if (!m.seen) bits.push("новое");
+  if (m.attachments) bits.push(m.attachments + " влож.");
+  if (m.labels && m.labels.length) {
+    const ICONS = { star: "⭐", reply: "📩", done: "✅",
+                    todo: "📌", spam: "🚫" };
+    bits.push(m.labels.map(l => ICONS[l] || l).join(" "));
+  }
+  return bits.join(", ");
+}
+
+
+// регистрация переключателя
+document.querySelectorAll("#periodBar .view-toggle button").forEach(b => {
+  b.onclick = () => switchView(b.dataset.view);
+});
+
+// ══════════════════════════════════════════════════════════════
+//  Модальное окно письма (patch_mail_modal.py)
+// ══════════════════════════════════════════════════════════════
+let _MODAL_QUEUE = [];   // message_id писем из последнего списка
+let _MODAL_INDEX = -1;   // индекс текущего письма в очереди
+
+const LABEL_DEFS = {
+  star:  { icon: "⭐", title: "Важное" },
+  reply: { icon: "📩", title: "Ответить" },
+  done:  { icon: "✅", title: "Готово" },
+  todo:  { icon: "📌", title: "В работу" },
+  spam:  { icon: "🚫", title: "Спам" },
+};
+
+function _openModal() {
+  const ov = document.getElementById("modalOverlay");
+  ov.classList.add("open");
+  ov.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+}
+
+function _closeModal() {
+  const ov = document.getElementById("modalOverlay");
+  ov.classList.remove("open");
+  ov.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  _MODAL_INDEX = -1;
+}
+
+// Клик по строке письма → модальное окно.
+async function openMessage(messageId, queue) {
+  if (!messageId) return;
+  if (Array.isArray(queue) && queue.length) {
+    _MODAL_QUEUE = queue.slice();
+    _MODAL_INDEX = _MODAL_QUEUE.indexOf(messageId);
+  } else if (_MODAL_QUEUE.length === 0) {
+    _MODAL_QUEUE = [messageId];
+    _MODAL_INDEX = 0;
+  } else {
+    const idx = _MODAL_QUEUE.indexOf(messageId);
+    _MODAL_INDEX = idx >= 0 ? idx : -1;
+  }
+  _openModal();
+  _renderModalLoading(messageId);
+  await _loadIntoModal(messageId, false);
+}
+
+function _renderModalLoading(messageId) {
+  document.getElementById("modalSubject").textContent = "Загружаю…";
+  document.getElementById("modalFrom").textContent = "";
+  document.getElementById("modalMeta").textContent = messageId;
+  document.getElementById("modalCacheNote").innerHTML = "";
+  const body = document.getElementById("modalBody");
+  body.className = "loading";
+  body.textContent = "Читаю тело из IMAP, подождите…";
+  document.getElementById("modalLabels").innerHTML = "";
+  document.getElementById("modalActions").innerHTML = "";
+  _updateNav();
+}
+
+function _updateNav() {
+  const prev = document.getElementById("modalPrev");
+  const next = document.getElementById("modalNext");
+  const info = document.getElementById("modalNavInfo");
+  if (_MODAL_QUEUE.length <= 1 || _MODAL_INDEX < 0) {
+    prev.disabled = true; next.disabled = true;
+    info.textContent = "";
+    return;
+  }
+  prev.disabled = _MODAL_INDEX <= 0;
+  next.disabled = _MODAL_INDEX >= _MODAL_QUEUE.length - 1;
+  info.textContent = (_MODAL_INDEX + 1) + " / " + _MODAL_QUEUE.length;
+}
+
+async function _loadIntoModal(messageId, forceRefresh) {
+  const url = "/api/mail_message?message_id="
+    + encodeURIComponent(messageId)
+    + "&with_body=1" + (forceRefresh ? "&refresh=1" : "");
+  try {
+    const r = await fetch(url);
+    let d = null;
+    try { d = await r.json(); } catch (_) {}
+    if (!r.ok) {
+      throw new Error((d && (d.error || d.message)) || ("HTTP " + r.status));
+    }
+    _renderModal(d, messageId);
+  } catch (e) {
+    const body = document.getElementById("modalBody");
+    body.className = "";
+    body.textContent = "Ошибка загрузки: " + e.message;
+  }
+}
+
+function _renderModal(d, messageId) {
+  const m = d.message || {};
+  const body = (d.body && d.body.body) || "";
+  const bodyErr = d.body_error;
+  const fromCache = d.body_from_cache;
+  const cachedAt = d.body_cached_at;
+
+  document.getElementById("modalSubject").textContent =
+    m.subject || "(без темы)";
+
+  const senderLine = (m.from_name || m.from_addr || "?")
+    + (m.from_addr ? " <" + m.from_addr + ">" : "");
+  document.getElementById("modalFrom").textContent = senderLine;
+
+  const metaBits = [(m.date || "").replace("T", " ").slice(0, 16),
+                    m.folder || "INBOX"];
+  if (m.uid) metaBits.push("UID " + m.uid);
+  if (m.attachments) metaBits.push("вложений: " + m.attachments);
+  metaBits.push(m.seen ? "прочитано" : "новое");
+  document.getElementById("modalMeta").textContent = metaBits.join(" · ");
+
+  const cacheNote = document.getElementById("modalCacheNote");
+  if (fromCache && cachedAt) {
+    cacheNote.innerHTML = "из кэша · "
+      + escapeHtml(cachedAt.replace("T", " ").slice(0, 16));
+  } else {
+    cacheNote.innerHTML = "";
+  }
+
+  const bodyEl = document.getElementById("modalBody");
+  if (bodyErr) {
+    bodyEl.className = "";
+    bodyEl.textContent = "Ошибка чтения тела: " + bodyErr;
+  } else {
+    bodyEl.className = "";
+    bodyEl.textContent = body || "(тело письма пустое)";
+  }
+
+  // Метки
+  const labels = d.labels || [];
+  const lblBox = document.getElementById("modalLabels");
+  lblBox.innerHTML = '<span style="color:#8b93a7;font-size:12px;'
+    + 'margin-right:6px;">Метки:</span>';
+  for (const [key, def] of Object.entries(LABEL_DEFS)) {
+    const btn = document.createElement("span");
+    btn.className = "lbl" + (labels.includes(key) ? " on" : "");
+    btn.dataset.label = key;
+    btn.dataset.mid = m.message_id || messageId;
+    btn.textContent = def.icon + " " + def.title;
+    btn.onclick = () => _toggleModalLabel(btn);
+    lblBox.appendChild(btn);
+  }
+
+  // Кнопки
+  const actions = document.getElementById("modalActions");
+  actions.innerHTML = "";
+  const realMid = m.message_id || messageId;
+
+  if (m.from_addr) {
+    const sub = m.subject ? ("Re: " + m.subject) : "";
+    const url = "https://mail.yandex.ru/compose?to="
+      + encodeURIComponent(m.from_addr)
+      + (sub ? "&subject=" + encodeURIComponent(sub) : "");
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = "✉️ Ответить в Яндекс.Почте";
+    actions.appendChild(a);
+  }
+
+  const refreshA = document.createElement("a");
+  refreshA.href = "#"; refreshA.textContent = "🔄 Обновить из IMAP";
+  refreshA.onclick = (e) => {
+    e.preventDefault();
+    _renderModalLoading(realMid);
+    _loadIntoModal(realMid, true);
+  };
+  actions.appendChild(refreshA);
+
+  const viewA = document.createElement("a");
+  viewA.href = "/mail_view.html?message_id=" + encodeURIComponent(realMid);
+  viewA.target = "_blank"; viewA.rel = "noopener";
+  viewA.className = "muted"; viewA.textContent = "Открыть в отдельной вкладке";
+  actions.appendChild(viewA);
+}
+
+async function _toggleModalLabel(btn) {
+  const on = btn.classList.toggle("on");
+  const action = on ? "mail_label_add" : "mail_label_remove";
+  try {
+    await fetch("/api/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message_id: btn.dataset.mid,
+        label: btn.dataset.label,
+      }),
+    });
+    if (typeof loadLabelCounts === "function") loadLabelCounts();
+  } catch (_) {}
+}
+
+// ── Управление ──
+document.addEventListener("click", (e) => {
+  const ov = document.getElementById("modalOverlay");
+  if (!ov) return;
+  if (e.target === ov) _closeModal();
+});
+document.addEventListener("keydown", (e) => {
+  const ov = document.getElementById("modalOverlay");
+  if (!ov || !ov.classList.contains("open")) return;
+  if (e.key === "Escape") _closeModal();
+  else if (e.key === "ArrowUp" && _MODAL_INDEX > 0) {
+    _MODAL_INDEX -= 1;
+    _renderModalLoading(_MODAL_QUEUE[_MODAL_INDEX]);
+    _loadIntoModal(_MODAL_QUEUE[_MODAL_INDEX], false);
+  } else if (e.key === "ArrowDown"
+             && _MODAL_INDEX < _MODAL_QUEUE.length - 1) {
+    _MODAL_INDEX += 1;
+    _renderModalLoading(_MODAL_QUEUE[_MODAL_INDEX]);
+    _loadIntoModal(_MODAL_QUEUE[_MODAL_INDEX], false);
+  }
+});
+document.addEventListener("DOMContentLoaded", () => {
+  const close = document.getElementById("modalClose");
+  if (close) close.onclick = _closeModal;
+  const prev = document.getElementById("modalPrev");
+  if (prev) prev.onclick = () => {
+    if (_MODAL_INDEX > 0) {
+      _MODAL_INDEX -= 1;
+      _renderModalLoading(_MODAL_QUEUE[_MODAL_INDEX]);
+      _loadIntoModal(_MODAL_QUEUE[_MODAL_INDEX], false);
+    }
+  };
+  const next = document.getElementById("modalNext");
+  if (next) next.onclick = () => {
+    if (_MODAL_INDEX < _MODAL_QUEUE.length - 1) {
+      _MODAL_INDEX += 1;
+      _renderModalLoading(_MODAL_QUEUE[_MODAL_INDEX]);
+      _loadIntoModal(_MODAL_QUEUE[_MODAL_INDEX], false);
+    }
+  };
+});
+
+// ── Подмена старой openMessage, если она определена ──
+// Старая функция открывает карточку в ленте. Мы её заменим — но т.к.
+// она объявлена через `function openMessage(...)`, объявление уже в
+// глобальной области. Перезапишем её нашей версией.
+window.openMessage = openMessage;
+
+
+// ══════════════════════════════════════════════════════════════
+//  Поле ответа в модальном окне (patch_mail_reply_field.py)
+// ══════════════════════════════════════════════════════════════
+const _REPLY = {
+  templates: [],          // [{name, subject_prefix, body}, ...]
+  currentMid: null,       // message_id, к которому привязан ответ
+  currentTo: "",          // адрес получателя
+  currentSubject: "",     // тема
+};
+
+function _replyStatus(text) {
+  const el = document.getElementById("modalReplyStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2000);
+}
+
+async function _loadTemplates() {
+  try {
+    const r = await fetch("/api/mail_templates_list");
+    if (!r.ok) return;
+    const d = await r.json();
+    _REPLY.templates = d.items || [];
+    const sel = document.getElementById("modalReplyTemplate");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— без шаблона —</option>';
+    for (const t of _REPLY.templates) {
+      const o = document.createElement("option");
+      o.value = t.name;
+      o.textContent = t.name;
+      sel.appendChild(o);
+    }
+  } catch (_) {}
+}
+
+// Подставляем письмо-контекст, когда карточка нарисована.
+function _setReplyContext(m, messageId) {
+  _REPLY.currentMid = m.message_id || messageId;
+  _REPLY.currentTo = m.from_addr || "";
+  _REPLY.currentSubject = m.subject || "";
+
+  const ta = document.getElementById("modalReplyText");
+  if (ta && !ta.dataset.touched) {
+    // Первый раз заполним «пустым» черновиком: цитата исходного письма.
+    const date = (m.date || "").replace("T", " ").slice(0, 16);
+    const who = m.from_name || m.from_addr || "";
+    ta.value = "\n\n---\n" + date + ", " + who + " писал(а):\n";
+    ta.dataset.touched = "1";
+  }
+
+  // Ссылка «Открыть в Яндекс.Почте» — тоже с префиксом Re:
+  const a = document.getElementById("modalReplyOpen");
+  if (a && m.from_addr) {
+    const sub = m.subject ? ("Re: " + m.subject) : "";
+    a.href = "https://mail.yandex.ru/compose?to="
+      + encodeURIComponent(m.from_addr)
+      + (sub ? "&subject=" + encodeURIComponent(sub) : "");
+  }
+}
+
+// Открытие/закрытие секции
+function _toggleReply() {
+  const box = document.getElementById("modalReply");
+  const tog = document.getElementById("modalReplyToggle");
+  if (!box) return;
+  const open = box.classList.toggle("open");
+  tog.classList.toggle("open", open);
+  if (open) {
+    _loadTemplates();
+    setTimeout(() => {
+      const ta = document.getElementById("modalReplyText");
+      if (ta) ta.focus();
+    }, 100);
+  }
+}
+
+// Вставить шаблон
+async function _insertTemplate() {
+  const sel = document.getElementById("modalReplyTemplate");
+  const name = sel && sel.value;
+  if (!name || !_REPLY.currentMid) {
+    _replyStatus("Выберите шаблон");
+    return;
+  }
+  try {
+    const r = await fetch("/api/mail_template_apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id: _REPLY.currentMid, name }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      _replyStatus("Ошибка: " + (d.error || "?"));
+      return;
+    }
+    const ta = document.getElementById("modalReplyText");
+    if (!ta) return;
+    // Если в поле уже что-то осмысленное — спросим.
+    const existing = ta.value.trim();
+    if (existing && existing.length > 10
+        && !confirm("Заменить текущий текст шаблоном?")) {
+      return;
+    }
+    ta.value = d.body || "";
+    ta.dataset.touched = "1";
+    // Обновляем subject в ссылке, если шаблон задаёт префикс.
+    const a = document.getElementById("modalReplyOpen");
+    if (a && d.subject) {
+      const sub = d.subject.startsWith("Re:")
+        ? d.subject
+        : ("Re: " + d.subject);
+      a.href = "https://mail.yandex.ru/compose?to="
+        + encodeURIComponent(_REPLY.currentTo)
+        + "&subject=" + encodeURIComponent(sub);
+    }
+    _replyStatus("Шаблон вставлен");
+  } catch (e) {
+    _replyStatus("Ошибка: " + e.message);
+  }
+}
+
+async function _copyReplyText() {
+  const ta = document.getElementById("modalReplyText");
+  if (!ta) return;
+  const text = ta.value || "";
+  if (!text.trim()) {
+    _replyStatus("Пусто");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    _replyStatus("✓ Скопировано");
+  } catch (_) {
+    // Fallback — старый способ через выделение
+    ta.select();
+    try {
+      document.execCommand("copy");
+      _replyStatus("✓ Скопировано");
+    } catch (e) {
+      _replyStatus("Не удалось скопировать");
+    }
+  }
+}
+
+// Открытие в Яндекс.Почте — предварительно копируем текст.
+async function _openInYandex(e) {
+  const ta = document.getElementById("modalReplyText");
+  const text = ta ? ta.value : "";
+  if (text && text.trim()) {
+    try {
+      await navigator.clipboard.writeText(text);
+      _replyStatus("Текст в буфере — вставьте Ctrl+V");
+    } catch (_) {
+      // Если не вышло, хотя бы попробуем.
+    }
+  }
+  // Не блокируем переход — ссылка откроется сама.
+}
+
+function _clearReply() {
+  const ta = document.getElementById("modalReplyText");
+  if (!ta) return;
+  if (!confirm("Очистить поле ответа?")) return;
+  ta.value = "";
+  ta.dataset.touched = "";
+  _replyStatus("Очищено");
+}
+
+// ── Привязка обработчиков ──
+document.addEventListener("DOMContentLoaded", () => {
+  const tog = document.getElementById("modalReplyToggle");
+  if (tog) tog.onclick = _toggleReply;
+
+  const ins = document.getElementById("modalReplyInsertTemplate");
+  if (ins) ins.onclick = _insertTemplate;
+
+  const cp = document.getElementById("modalReplyCopy");
+  if (cp) cp.onclick = _copyReplyText;
+
+  const op = document.getElementById("modalReplyOpen");
+  if (op) op.onclick = _openInYandex;
+
+  const cl = document.getElementById("modalReplyClear");
+  if (cl) cl.onclick = _clearReply;
+
+  const ta = document.getElementById("modalReplyText");
+  if (ta) {
+    ta.addEventListener("input", () => {
+      ta.dataset.touched = "1";
+    });
+  }
+});
+
+// ── Хук в _renderModal: подставляем контекст ──
+// _renderModal — из предыдущего патча. Обернём его.
+(function hookRenderModal() {
+  if (typeof _renderModal !== "function") return;
+  const _orig = _renderModal;
+  window._renderModal = function(d, messageId) {
+    _orig(d, messageId);
+    try {
+      const m = d.message || {};
+      // Сброс «touched» — новое письмо, новый черновик
+      const ta = document.getElementById("modalReplyText");
+      if (ta) {
+        ta.dataset.touched = "";
+        ta.value = "";
+      }
+      _setReplyContext(m, messageId);
+      // Секцию ответа при смене письма сворачиваем.
+      const box = document.getElementById("modalReply");
+      const tog = document.getElementById("modalReplyToggle");
+      if (box) box.classList.remove("open");
+      if (tog) tog.classList.remove("open");
+    } catch (_) {}
+  };
+})();
+
+</script>
+
+<!-- Модальное окно письма (patch_mail_modal.py) -->
+<div id="modalOverlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div id="modalWindow">
+    <div id="modalHead">
+      <div class="mc-title">
+        <div class="mc-subject" id="modalSubject">Загрузка…</div>
+        <div class="mc-meta" id="modalFrom"></div>
+        <div class="mc-meta dim" id="modalMeta"></div>
+        <div class="mc-cache-note" id="modalCacheNote"></div>
+      </div>
+      <button id="modalClose" title="Закрыть (Esc)">✕</button>
+    </div>
+    <div id="modalNav">
+      <button id="modalPrev" title="Предыдущее (←)">↑ предыдущее</button>
+      <button id="modalNext" title="Следующее (→)">↓ следующее</button>
+      <span class="nav-info" id="modalNavInfo"></span>
+    </div>
+    <div id="modalBody" class="loading">Читаю тело из IMAP, подождите…</div>
+    <div id="modalLabels"></div>
+
+    <div id="modalReply">
+      <div id="modalReplyToggle" title="Развернуть / свернуть">
+        <span class="arrow">▶</span>
+        <span>Ответить</span>
+        <span class="sub">текст копируется в буфер, дальше — Яндекс.Почта</span>
+      </div>
+      <div id="modalReplyBody">
+        <div id="modalReplyToolbar">
+          <select id="modalReplyTemplate">
+            <option value="">— без шаблона —</option>
+          </select>
+          <button id="modalReplyInsertTemplate"
+                  style="background:var(--panel2);border:1px solid var(--line);
+                         color:var(--fg);padding:6px 12px;border-radius:6px;
+                         cursor:pointer;font:inherit;font-size:12.5px;">
+            Вставить шаблон
+          </button>
+        </div>
+        <textarea id="modalReplyText"
+                  placeholder="Напишите ответ. Затем — «Открыть в Яндекс.Почте»: текст окажется в буфере, форма письма откроется в браузере."></textarea>
+        <div id="modalReplyActions">
+          <a id="modalReplyOpen" class="primary" href="#" target="_blank" rel="noopener">✉️ Открыть в Яндекс.Почте</a>
+          <button id="modalReplyCopy">📋 Скопировать</button>
+          <button id="modalReplyClear">Очистить</button>
+          <span class="reply-status" id="modalReplyStatus"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="modalActions"></div>
+  </div>
+</div>
+
+
+<!-- Модальное окно «Новое письмо» (patch_mail_compose.py) -->
+<div id="composeOverlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div id="composeWindow">
+    <div id="composeHead">
+      <h2>✉️ Новое письмо</h2>
+      <button id="composeClose" title="Закрыть (Esc)">✕</button>
+    </div>
+    <div id="composeBody">
+      <div class="cmp-field">
+        <label for="composeTo">Кому <span style="color:#ff5f6d;">*</span></label>
+        <input id="composeTo" type="text" placeholder="адрес@example.com"
+               autocomplete="off">
+      </div>
+      <div class="cmp-field">
+        <label for="composeCc">Копия (необязательно)</label>
+        <input id="composeCc" type="text" placeholder="через ; или , "
+               autocomplete="off">
+      </div>
+      <div class="cmp-field">
+        <label for="composeSubject">Тема</label>
+        <input id="composeSubject" type="text" autocomplete="off">
+      </div>
+      <div class="cmp-field">
+        <label>Шаблон</label>
+        <div id="composeToolbar">
+          <select id="composeTemplate">
+            <option value="">— без шаблона —</option>
+          </select>
+          <button id="composeInsertTemplate" type="button">Вставить</button>
+        </div>
+      </div>
+      <div class="cmp-field">
+        <label for="composeText">Текст письма</label>
+        <textarea id="composeText" placeholder="Текст письма…"></textarea>
+      </div>
+    </div>
+    <div id="composeActions">
+      <a id="composeOpen" class="primary" href="#" target="_blank" rel="noopener">
+        ✉️ Открыть в Яндекс.Почте
+      </a>
+      <button id="composeCopy" type="button">📋 Скопировать текст</button>
+      <button id="composeClear" type="button">Очистить</button>
+      <span class="status" id="composeStatus"></span>
+      <span class="hint">
+        Текст копируется в буфер, откроется compose в Яндекс.Почте —
+        вставьте Ctrl+V и отправьте.
+      </span>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ── compose: гарантированная вставка (fix_compose_js.py) ──
+(function() {
+  const LS_KEY = "mail_compose_draft_v1";
+
+  function status(text) {
+    const el = document.getElementById("composeStatus");
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.add("show");
+    setTimeout(() => el.classList.remove("show"), 2200);
+  }
+
+  function buildUrl() {
+    const to = (document.getElementById("composeTo")?.value || "").trim();
+    const cc = (document.getElementById("composeCc")?.value || "").trim();
+    const subj = (document.getElementById("composeSubject")?.value || "").trim();
+    if (!to) return "";
+    let url = "https://mail.yandex.ru/compose?to=" + encodeURIComponent(to);
+    if (subj) url += "&subject=" + encodeURIComponent(subj);
+    if (cc) url += "&cc=" + encodeURIComponent(cc);
+    return url;
+  }
+
+  function refreshLink() {
+    const a = document.getElementById("composeOpen");
+    if (!a) return;
+    const url = buildUrl();
+    if (url) { a.href = url; a.style.pointerEvents = ""; a.style.opacity = ""; }
+    else { a.href = "#"; a.style.pointerEvents = "none"; a.style.opacity = ".5"; }
+  }
+
+  function saveDraft() {
+    try {
+      const d = {
+        to: (document.getElementById("composeTo")?.value || ""),
+        cc: (document.getElementById("composeCc")?.value || ""),
+        subject: (document.getElementById("composeSubject")?.value || ""),
+        text: (document.getElementById("composeText")?.value || ""),
+        ts: new Date().toISOString(),
+      };
+      if (!d.to && !d.subject && !d.text.trim()) {
+        localStorage.removeItem(LS_KEY); return;
+      }
+      localStorage.setItem(LS_KEY, JSON.stringify(d));
+    } catch (_) {}
+  }
+
+  function restoreDraft() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      const to = document.getElementById("composeTo");
+      const cc = document.getElementById("composeCc");
+      const subj = document.getElementById("composeSubject");
+      const ta = document.getElementById("composeText");
+      if (to && !to.value) to.value = d.to || "";
+      if (cc && !cc.value) cc.value = d.cc || "";
+      if (subj && !subj.value) subj.value = d.subject || "";
+      if (ta && !ta.value) ta.value = d.text || "";
+      if ((d.to || d.subject || d.text)) status("Восстановлен черновик");
+    } catch (_) {}
+  }
+
+  async function loadTemplates() {
+    const sel = document.getElementById("composeTemplate");
+    if (!sel || sel.dataset.loaded) return;
+    try {
+      const r = await fetch("/api/mail_templates_list");
+      if (!r.ok) return;
+      const d = await r.json();
+      for (const t of (d.items || [])) {
+        const o = document.createElement("option");
+        o.value = t.name; o.textContent = t.name;
+        sel.appendChild(o);
+      }
+      sel.dataset.loaded = "1";
+    } catch (_) {}
+  }
+
+  async function insertTemplate() {
+    const sel = document.getElementById("composeTemplate");
+    const name = sel && sel.value;
+    if (!name) { status("Выберите шаблон"); return; }
+    try {
+      const r = await fetch("/api/mail_templates_list");
+      const d = await r.json();
+      const t = (d.items || []).find(x => x.name === name);
+      if (!t) { status("Шаблон не найден"); return; }
+      const ta = document.getElementById("composeText");
+      const subj = document.getElementById("composeSubject");
+      if (ta) {
+        const cur = (ta.value || "").trim();
+        if (cur && cur.length > 5 &&
+            !confirm("Заменить текущий текст шаблоном?")) return;
+        ta.value = t.body || "";
+      }
+      if (subj && !subj.value && t.subject_prefix) subj.value = t.subject_prefix;
+      status("Шаблон вставлен");
+    } catch (e) { status("Ошибка: " + e.message); }
+  }
+
+  async function copyText() {
+    const ta = document.getElementById("composeText");
+    if (!ta || !ta.value.trim()) { status("Пусто"); return; }
+    try {
+      await navigator.clipboard.writeText(ta.value);
+      status("✓ Текст скопирован");
+    } catch (_) {
+      ta.select();
+      try { document.execCommand("copy"); status("✓ Скопировано"); }
+      catch (e) { status("Не удалось скопировать"); }
+    }
+  }
+
+  function clearForm() {
+    if (!confirm("Очистить форму?")) return;
+    for (const id of ["composeTo","composeCc","composeSubject","composeText"]) {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    }
+    try { localStorage.removeItem(LS_KEY); } catch (_) {}
+    status("Очищено"); refreshLink();
+  }
+
+  async function openInYandex(e) {
+    const to = (document.getElementById("composeTo")?.value || "").trim();
+    if (!to) { e.preventDefault(); status("Укажите адрес"); return; }
+    const ta = document.getElementById("composeText");
+    if (ta && ta.value.trim()) {
+      try {
+        await navigator.clipboard.writeText(ta.value);
+        status("Текст в буфере — Ctrl+V");
+      } catch (_) {}
+    }
+    try { localStorage.removeItem(LS_KEY); } catch (_) {}
+  }
+
+  window._openCompose = function() {
+    const ov = document.getElementById("composeOverlay");
+    if (!ov) { alert("Окно compose не найдено в HTML"); return; }
+    ov.classList.add("open");
+    ov.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    restoreDraft();
+    loadTemplates();
+    refreshLink();
+    setTimeout(() => {
+      const to = document.getElementById("composeTo");
+      if (to) to.focus();
+    }, 80);
+    console.log("[compose] окно открыто");
+  };
+
+  window._closeCompose = function() {
+    const ov = document.getElementById("composeOverlay");
+    if (!ov) return;
+    ov.classList.remove("open");
+    ov.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    saveDraft();
+  };
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const btn = document.getElementById("btnCompose");
+    if (btn) {
+      btn.onclick = (e) => { e.preventDefault(); window._openCompose(); };
+      console.log("[compose] кнопка найдена, обработчик установлен");
+    } else {
+      console.warn("[compose] кнопка btnCompose НЕ найдена");
+    }
+    const close = document.getElementById("composeClose");
+    if (close) close.onclick = window._closeCompose;
+    const ins = document.getElementById("composeInsertTemplate");
+    if (ins) ins.onclick = insertTemplate;
+    const cp = document.getElementById("composeCopy");
+    if (cp) cp.onclick = copyText;
+    const clr = document.getElementById("composeClear");
+    if (clr) clr.onclick = clearForm;
+    const opn = document.getElementById("composeOpen");
+    if (opn) opn.onclick = openInYandex;
+    for (const id of ["composeTo","composeCc","composeSubject"]) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", () => { refreshLink(); saveDraft(); });
+    }
+    const ta = document.getElementById("composeText");
+    if (ta) ta.addEventListener("input", saveDraft);
+    const ov = document.getElementById("composeOverlay");
+    if (ov) ov.addEventListener("click", (e) => {
+      if (e.target === ov) window._closeCompose();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const ov = document.getElementById("composeOverlay");
+      if (ov && ov.classList.contains("open")) window._closeCompose();
+    }, true);
+  });
+})();
+</script>
+
+
+<!-- Модальное окно контактов (patch_mail_contacts.py) -->
+<div id="contactsOverlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div id="contactsWindow">
+    <div id="contactsHead">
+      <h2>👥 Контакты</h2>
+      <button id="contactsClose" title="Закрыть (Esc)">✕</button>
+    </div>
+    <div id="contactsSearch">
+      <input id="contactsSearchInput" type="text"
+             placeholder="Поиск по email или имени…"
+             autocomplete="off">
+      <div class="info" id="contactsInfo">—</div>
+    </div>
+    <div id="contactsList"></div>
+  </div>
+</div>
+
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  Отправка через SMTP (patch_send.py)
+// ══════════════════════════════════════════════════════════════
+(function(){
+  "use strict";
+  console.log("[send] скрипт загружен");
+
+  function findSend() {
+    // Кнопку «Отправить» создадим сами, если её нет
+    let btn = document.getElementById("composeSendReal");
+    if (btn) return btn;
+    const anchor = document.getElementById("composeCopy");
+    if (!anchor || !anchor.parentNode) return null;
+    btn = document.createElement("button");
+    btn.id = "composeSendReal";
+    btn.type = "button";
+    btn.textContent = "📤 Отправить";
+    btn.style.cssText =
+      "background:#3ddc84;border:1px solid #3ddc84;color:#062;"
+      + "font-weight:600;padding:9px 18px;border-radius:6px;"
+      + "cursor:pointer;font:inherit;font-size:13px;";
+    anchor.parentNode.insertBefore(btn, anchor);
+    return btn;
+  }
+
+  function status(text, ok) {
+    const el = document.getElementById("composeStatus");
+    if (!el) { alert(text); return; }
+    el.textContent = text || "";
+    el.style.color = ok ? "#3ddc84" : "#ff5f6d";
+    el.classList.add("show");
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove("show"), 6000);
+  }
+
+  async function doSend() {
+    const to = (document.getElementById("composeTo")?.value || "").trim();
+    const cc = (document.getElementById("composeCc")?.value || "").trim();
+    const subj = (document.getElementById("composeSubject")?.value || "").trim();
+    const body = document.getElementById("composeText")?.value || "";
+
+    if (!to) { status("Укажите адрес получателя", false); return; }
+    if (!body.trim() && !subj) { status("Пустое письмо", false); return; }
+
+    if (!confirm("Отправить письмо на " + to + "?")) return;
+
+    const btn = document.getElementById("composeSendReal");
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ Отправка…"; }
+    status("Отправляю…", true);
+
+    try {
+      // Если compose открыт из карточки письма — знаем in_reply_to.
+      const in_reply_to = window._currentMailMid || "";
+      const r = await fetch("/api/mail_send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({to, cc, subject: subj, body, in_reply_to}),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) {
+        status("❌ " + (d.error || ("HTTP " + r.status)), false);
+      } else {
+        status("✅ Отправлено на " + (d.to || []).join(", "), true);
+        try { localStorage.removeItem("mail_compose_draft_v1"); } catch(_) {}
+        // Очистим поля и закроем окно через 1.5 с
+        setTimeout(() => {
+          const ov = document.getElementById("composeOverlay");
+          if (ov) ov.classList.remove("open");
+          for (const id of ["composeTo","composeCc",
+                             "composeSubject","composeText"]) {
+            const el = document.getElementById(id);
+            if (el) el.value = "";
+          }
+          document.body.style.overflow = "";
+        }, 1500);
+      }
+    } catch (e) {
+      status("❌ " + e.message, false);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "📤 Отправить"; }
+    }
+  }
+
+  function bind() {
+    const btn = findSend();
+    if (!btn) {
+      console.warn("[send] кнопка не найдена (нет composeCopy?)");
+      return false;
+    }
+    if (btn.dataset.bound) return true;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      doSend();
+    });
+    console.log("[send] кнопка привязана");
+    return true;
+  }
+
+  // Пробуем несколько раз — на случай, если compose-окно рисуется позже.
+  window._sendNow = doSend;
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+  setTimeout(bind, 500);
+  setTimeout(bind, 1500);
+  setTimeout(bind, 3000);
+
+  // Перепривязка при открытии compose
+  const _orig = window._openCompose;
+  if (typeof _orig === "function") {
+    window._openCompose = function() {
+      _orig.apply(this, arguments);
+      setTimeout(bind, 200);
+    };
+  }
+})();
+</script>
+
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  Задачи из писем (patch_mail_tasks.py)
+// ══════════════════════════════════════════════════════════════
+(function(){
+  "use strict";
+  console.log("[tasks] загружен");
+
+  function findCard() {
+    // Ищем в модальном окне #modalActions
+    return document.querySelector("#modalActions");
+  }
+
+  function ensureButton() {
+    const actions = findCard();
+    if (!actions) return null;
+    let btn = document.getElementById("taskFromMailBtn");
+    if (btn) return btn;
+    btn = document.createElement("a");
+    btn.id = "taskFromMailBtn";
+    btn.href = "#";
+    btn.textContent = "📋 В задачи";
+    btn.style.cssText =
+      "color:#4c8dff;text-decoration:none;font-size:13px;"
+      + "padding:8px 14px;border:1px solid #262b36;border-radius:6px;"
+      + "background:#1e222b;cursor:pointer;";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      createTaskFromCard();
+    });
+    // Вставим перед кнопкой «Открыть в отдельной вкладке» или в конце
+    const muted = actions.querySelector("a.muted");
+    if (muted) actions.insertBefore(btn, muted);
+    else actions.appendChild(btn);
+    return btn;
+  }
+
+  async function createTaskFromCard() {
+    // Берём данные из модального окна
+    const subj = document.getElementById("modalSubject")?.textContent || "";
+    const fromLine = document.getElementById("modalFrom")?.textContent || "";
+    const fromAddr = (fromLine.match(/<([^>]+)>/) || [, fromLine])[1] || "";
+
+    // message_id — сохраним при отрисовке карточки
+    const mid = window._currentMailMid || "";
+
+    const title = prompt("Название задачи:", subj);
+    if (title === null) return;
+
+    const priority = prompt(
+      "Приоритет (low / normal / high / urgent):", "normal");
+    if (priority === null) return;
+    const validP = ["low","normal","high","urgent"];
+    const pr = validP.includes(priority.toLowerCase())
+              ? priority.toLowerCase() : "normal";
+
+    const dueDays = prompt("Срок, через сколько дней (0 = без срока):", "0");
+    let due_date = "";
+    if (dueDays && parseInt(dueDays, 10) > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() + parseInt(dueDays, 10));
+      due_date = d.toISOString().slice(0,10);
+    }
+
+    try {
+      const r = await fetch("/api/mail_task_create", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          message_id: mid, subject: subj, from_addr: fromAddr,
+          title, priority: pr, due_date,
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        alert("✅ Задача создана" + (d.existing ? " (уже была)" : ""));
+      } else {
+        alert("❌ " + (d.error || "не удалось"));
+      }
+    } catch (e) {
+      alert("❌ " + e.message);
+    }
+  }
+
+  // Хук — при отрисовке карточки письма запомним message_id и добавим кнопку
+  // ищем в _renderModal или openMessage; используем MutationObserver
+  const obs = new MutationObserver(() => {
+    if (document.getElementById("modalOverlay")?.classList.contains("open")) {
+      ensureButton();
+    }
+  });
+  obs.observe(document.body, { childList: true, subtree: true, attributes: true,
+                                attributeFilter: ["class"] });
+
+  // Также следим за полем modalSubject — там нет message_id, поэтому
+  // перехватим вызов _renderModal если он есть
+  if (typeof window._renderModal === "function") {
+    const _orig = window._renderModal;
+    window._renderModal = function(d, messageId) {
+      window._currentMailMid = d?.message?.message_id || messageId || "";
+      _orig(d, messageId);
+      setTimeout(ensureButton, 100);
+    };
+  }
+})();
+</script>
+
+<script src="/_nav.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  Realtime streaming (patch_streaming.py)
+// ══════════════════════════════════════════════════════════════
+(function(){
+  "use strict";
+  console.log("[stream] загружен");
+
+  // Индикатор в шапке
+  function ensureIndicator() {
+    let el = document.getElementById("streamIndicator");
+    if (el) return el;
+    const header = document.querySelector("header");
+    if (!header) return null;
+    el = document.createElement("span");
+    el.id = "streamIndicator";
+    el.style.cssText =
+      "display:inline-flex;align-items:center;gap:6px;"
+      + "font-size:11.5px;color:#8b93a7;margin-left:auto;";
+    el.innerHTML =
+      '<span id="streamDot" style="width:8px;height:8px;'
+      + 'border-radius:50%;background:#3a3f4b;"></span>'
+      + '<span id="streamLabel">стрим…</span>';
+    header.appendChild(el);
+    return el;
+  }
+
+  function setStreamStatus(state) {
+    const dot = document.getElementById("streamDot");
+    const lbl = document.getElementById("streamLabel");
+    if (!dot || !lbl) return;
+    if (state === "connected") {
+      dot.style.background = "#3ddc84";
+      dot.style.animation = "";
+      lbl.textContent = "стрим активен";
+    } else if (state === "connecting") {
+      dot.style.background = "#ffb347";
+      dot.style.animation = "pulse 1.2s infinite";
+      lbl.textContent = "подключаюсь…";
+    } else {
+      dot.style.background = "#ff5f6d";
+      dot.style.animation = "";
+      lbl.textContent = "стрим отключён";
+    }
+  }
+
+  // Подписка на SSE
+  let es = null;
+  function connect() {
+    setStreamStatus("connecting");
+    try {
+      es = new EventSource("/api/stream");
+    } catch (e) {
+      setStreamStatus("off");
+      return;
+    }
+
+    es.onopen = () => setStreamStatus("connected");
+    es.onerror = () => {
+      setStreamStatus("off");
+      // EventSource сам переподключается через ~3 сек
+    };
+
+    es.addEventListener("mail:new", (e) => {
+      let d = {};
+      try { d = JSON.parse(e.data).data || {}; } catch (_) {}
+      const n = d.count || 0;
+      console.log("[stream] mail:new:", d);
+      if (n > 0) {
+        // Пушим в браузерные уведомления (если разрешены)
+        if (window.Notification && Notification.permission === "granted") {
+          try {
+            const notif = new Notification(
+              "📬 " + n + " нов" + (n === 1 ? "ое" : "ых") + " письм" +
+              (n === 1 ? "о" : "а"),
+              { tag: "mail-new-" + Date.now() });
+            notif.onclick = () => {
+              window.focus();
+              if (typeof send === "function") send("последние 10");
+            };
+          } catch (_) {}
+        }
+        // Всплеск в индикаторе
+        const dot = document.getElementById("streamDot");
+        if (dot) {
+          dot.style.transform = "scale(1.8)";
+          setTimeout(() => dot.style.transform = "", 600);
+        }
+      }
+    });
+
+    es.addEventListener("mail:connected", (e) => {
+      console.log("[stream] mail:connected");
+    });
+
+    es.addEventListener("feed:update", (e) => {
+      let d = {};
+      try { d = JSON.parse(e.data).data || {}; } catch (_) {}
+      console.log("[stream] feed:update:", d);
+    });
+  }
+
+  // CSS для пульсации
+  if (!document.getElementById("streamPulseCSS")) {
+    const style = document.createElement("style");
+    style.id = "streamPulseCSS";
+    style.textContent =
+      "@keyframes pulse{50%{opacity:.35}}"
+      + "#streamDot{transition:transform .2s;}";
+    document.head.appendChild(style);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      ensureIndicator(); connect();
+    });
+  } else {
+    ensureIndicator(); connect();
+  }
+})();
+</script>
+
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  Сохранение + web-уведомления (patch_mail_notify_saved.py)
+// ══════════════════════════════════════════════════════════════
+(function(){
+  "use strict";
+  console.log("[notify-saved] загружен");
+
+  // ── Сохранение письма ──
+  function ensureSaveBtn() {
+    const actions = document.querySelector("#modalActions");
+    if (!actions) return null;
+    let b = document.getElementById("mailSaveBtn");
+    if (b) return b;
+    b = document.createElement("a");
+    b.id = "mailSaveBtn";
+    b.href = "#";
+    b.textContent = "💾 Сохранить .eml";
+    b.style.cssText =
+      "color:#4c8dff;text-decoration:none;font-size:13px;"
+      + "padding:8px 14px;border:1px solid #262b36;border-radius:6px;"
+      + "background:#1e222b;cursor:pointer;";
+    b.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const mid = window._currentMailMid || "";
+      if (!mid) { alert("Не знаю message_id"); return; }
+      b.textContent = "⏳ Сохраняю…";
+      try {
+        const r = await fetch("/api/mail_save", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message_id: mid})
+        });
+        const d = await r.json();
+        if (d.ok) {
+          b.textContent = d.existing ? "✓ Уже сохранено" : "✓ Сохранено";
+          setTimeout(() => b.textContent = "💾 Сохранить .eml", 2000);
+        } else {
+          b.textContent = "💾 Сохранить .eml";
+          alert("Ошибка: " + (d.error || "не сохранилось"));
+        }
+      } catch (err) {
+        b.textContent = "💾 Сохранить .eml";
+        alert("Ошибка: " + err.message);
+      }
+    });
+    const muted = actions.querySelector("a.muted");
+    if (muted) actions.insertBefore(b, muted);
+    else actions.appendChild(b);
+    return b;
+  }
+
+  // Кнопка «Сохранить» — добавляем при открытии модалки
+  const obs = new MutationObserver(() => {
+    if (document.getElementById("modalOverlay")?.classList.contains("open")) {
+      ensureSaveBtn();
+    }
+  });
+  obs.observe(document.body, { childList: true, subtree: true,
+                                attributes: true, attributeFilter: ["class"] });
+
+  // ── Web-notifications: разрешение + проверка новых ──
+  window._askBrowserNotifications = async function() {
+    if (!("Notification" in window)) {
+      alert("Браузер не поддерживает уведомления");
+      return;
+    }
+    const p = await Notification.requestPermission();
+    console.log("[notify-saved] разрешение:", p);
+    return p;
+  };
+
+  // Поллинг новых писем раз в 60 сек — только если разрешение дано
+  // и фильтры включены с browser_push=true
+  let _lastMaxUid = null;
+  async function checkNew() {
+    try {
+      const cfg = await fetch("/api/mail_notify_filters").then(r => r.json());
+      if (!cfg.enabled || !cfg.browser_push) return;
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+      const r = await fetch("/api/mail_list?days=1&page_size=20");
+      const d = await r.json();
+      const rows = d.rows || [];
+      if (!rows.length) return;
+
+      // Ищем самое свежее непрочитанное
+      const fresh = rows.filter(x => x.flags && x.flags.includes("новое"));
+      if (!fresh.length) return;
+      const top = fresh[0];
+
+      // Дубликаты подавляем по message_id
+      const seenKey = "mail_notify_last";
+      const lastId = localStorage.getItem(seenKey);
+      if (lastId === top.message_id) return;
+      localStorage.setItem(seenKey, top.message_id);
+
+      const n = new Notification("📬 Новое письмо", {
+        body: (top.from || "") + ": " + (top.subject || ""),
+        tag: "mail-" + top.message_id,
+        silent: false,
+      });
+      n.onclick = () => {
+        window.focus();
+        if (typeof openMessage === "function" && top.message_id) {
+          openMessage(top.message_id);
+        }
+      };
+    } catch (_) {}
+  }
+  setInterval(checkNew, 60000);
+  setTimeout(checkNew, 3000);
+})();
+
+
+// ── Дерево по контактам (patch_contacts_tree.py) ──
+async function loadContactsTree() {
+  addMsg("🌳 Загружаю контакты (" + CURRENT_DAYS + " дн.)…", "bot");
+  try {
+    const r = await fetch("/api/mail_contacts_tree?days=" + CURRENT_DAYS
+                          + "&group_by_subject=0");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    renderContactsTree(d);
+  } catch (e) {
+    addMsg("Ошибка: " + e.message, "bot");
+  }
+}
+
+function renderContactsTree(d) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg bot";
+
+  const head = document.createElement("div");
+  head.style.marginBottom = "12px";
+  head.innerHTML =
+    "<b>🌳 Контакты</b> — " + d.total_contacts + " отправителей, "
+    + d.total_messages + " писем за " + d.window_days + " дней";
+  wrap.appendChild(head);
+
+  const list = d.contacts || [];
+  if (!list.length) {
+    const e = document.createElement("div");
+    e.style.color = "#8b93a7";
+    e.textContent = "Нет писем за выбранный период.";
+    wrap.appendChild(e);
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return;
+  }
+
+  for (const c of list) {
+    wrap.appendChild(buildContactBlock(c));
+  }
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function buildContactBlock(c) {
+  const box = document.createElement("div");
+  box.className = "thread";
+
+  const head = document.createElement("div");
+  head.className = "thread-head";
+  if (c.unseen > 0) head.style.borderLeftColor = "#ffb347";
+
+  const display = c.name || c.email;
+  const email = c.name ? " <" + c.email + ">" : "";
+  const unseenBadge = c.unseen > 0
+    ? '<span class="unseen-badge">' + c.unseen + " новых</span>" : "";
+  const attachBadge = c.with_attach > 0
+    ? '<span class="count" style="background:rgba(255,179,71,.15);color:#ffb347;">📎 '
+      + c.with_attach + "</span>" : "";
+  const lastShort = (c.last_date || "").replace("T", " ").slice(0, 16);
+
+  head.innerHTML =
+    '<span class="arrow">▶</span>'
+    + '<span class="subj">'
+      + '<b>' + escapeHtml(display) + '</b>'
+      + '<span style="color:#8b93a7;font-weight:400;font-size:12px;">'
+        + escapeHtml(email) + '</span>'
+      + '<span class="count">' + c.count + '</span>'
+      + unseenBadge + attachBadge
+    + '</span>'
+    + '<span class="meta">' + escapeHtml(lastShort) + '</span>';
+
+  const body = document.createElement("div");
+  body.className = "thread-body";
+
+  for (const m of c.messages) {
+    const row = document.createElement("div");
+    row.className = "thread-msg";
+    row.title = "Открыть письмо";
+    const dt = (m.date || "").replace("T", " ").slice(0, 16);
+    const flags = [];
+    if (!m.seen) flags.push("новое");
+    if (m.attachments) flags.push(m.attachments + " влож.");
+    if (m.labels && m.labels.length) {
+      const ICONS = {star: "⭐", reply: "📩", done: "✅",
+                     todo: "📌", spam: "🚫"};
+      flags.push(m.labels.map(l => ICONS[l] || l).join(" "));
+    }
+    row.innerHTML =
+      '<span class="date">' + escapeHtml(dt) + '</span>'
+      + '<span class="from"></span>'
+      + '<span class="subj" style="grid-column:2 / span 2;">'
+        + escapeHtml(m.subject || "(без темы)") + '</span>'
+      + '<span class="flags">' + escapeHtml(flags.join(", ")) + '</span>';
+    row.onclick = (e) => {
+      e.stopPropagation();
+      const queue = c.messages.map(x => x.message_id).filter(Boolean);
+      openMessage(m.message_id, queue);
+    };
+    body.appendChild(row);
+  }
+
+  head.onclick = () => {
+    head.classList.toggle("open");
+    body.classList.toggle("open");
+  };
+
+  box.appendChild(head);
+  box.appendChild(body);
+  return box;
+}
+
+</script>
+
+</body>
+</html>

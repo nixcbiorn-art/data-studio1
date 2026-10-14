@@ -1,0 +1,139 @@
+{
+  "key": "kortros_secretgarden",
+  "title": "Kortros — Сикрет Гарден (YRL XML)",
+  "external": true,
+  "format": "xml",
+  "xml_record_tag": "offer",
+  "url": "https://feeds.kortros.ru/ya/?obj=secretgarden",
+  "page_size": 1000000,
+  "data_path": [
+    "items"
+  ],
+  "total_path": [
+    "total"
+  ],
+  "flatten_depth": 3,
+  "id_field": "internal_id",
+  "name_field": "building_name",
+  "mapping": {
+    "internal_id": "internal-id",
+    "type": "type",
+    "property_type": "property-type",
+    "category": "category",
+    "creation_date": "creation-date",
+    "last_update_date": "last-update-date",
+    "country": "location.country",
+    "region": "location.region",
+    "district": "location.district",
+    "locality_name": "location.locality-name",
+    "address": "location.address",
+    "price": "price.value",
+    "currency": "price.currency",
+    "sales_agent_phone": "sales-agent.phone",
+    "sales_agent_organization": "sales-agent.organization",
+    "sales_agent_url": "sales-agent.url",
+    "sales_agent_photo": "sales-agent.photo",
+    "sales_agent_category": "sales-agent.category",
+    "rooms": "rooms",
+    "floor": "floor",
+    "deal_status": "deal-status",
+    "apartments": "apartments",
+    "new_flat": "new-flat",
+    "floors_total": "floors-total",
+    "building_name": "building-name",
+    "apartment": "apartment",
+    "yandex_building_id": "yandex-building-id",
+    "yandex_house_id": "yandex-house-id",
+    "building_state": "building-state",
+    "built_year": "built-year",
+    "ready_quarter": "ready-quarter",
+    "building_type": "building-type",
+    "building_section": "building-section",
+    "image": "image",
+    "area": "area.value",
+    "area_unit": "area.unit",
+    "living_space": "living-space.value",
+    "living_space_unit": "living-space.unit"
+  },
+  "numeric_fields": [
+    "price",
+    "area",
+    "living_space",
+    "floor",
+    "floors_total",
+    "rooms",
+    "built_year",
+    "ready_quarter",
+    "new_flat"
+  ],
+  "group_fields": [
+    "building_name",
+    "building_state",
+    "building_section",
+    "rooms"
+  ],
+  "track_fields": [
+    "price",
+    "area",
+    "building_state",
+    "deal_status"
+  ],
+  "positive_fields": [
+    "price",
+    "area",
+    "living_space"
+  ],
+  "required_fields": [
+    "internal_id",
+    "price",
+    "area"
+  ],
+  "pagination_strategy": "stop",
+  "parse_strategy": "xml_tag",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Referer": "https://gk-osnova.ru/"
+  },
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "building_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "price": "price",
+      "area": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "Кортрос"
+      },
+      {
+        "field": "object_type",
+        "op": "notin",
+        "values": [
+          "Машино-место",
+          "Кладовка",
+          "Коммерческая недвижимость"
+        ]
+      }
+    ],
+    "min_group_size": 5,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "filter_left": [
+      {
+        "field": "category",
+        "op": "notin",
+        "values": [
+          "гараж",
+          "коммерческая"
+        ]
+      }
+    ]
+  }
+}

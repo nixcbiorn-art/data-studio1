@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Шаблоны ответов · RedCat Studio</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --fg:#e6e8ec;
+          --dim:#8b93a7; --accent:#4c8dff; --ok:#3ddc84; --err:#ff5f6d;
+          --line:#262b36; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header a { color: var(--dim); text-decoration: none; font-size: 13px; }
+  header a:hover { color: var(--fg); }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+              color: var(--dim); margin: 0 0 14px; font-weight: 600; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; color: var(--dim); font-size: 12px;
+                 margin-bottom: 5px; }
+  input, textarea {
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 12px; color: var(--fg);
+    font: inherit; width: 100%;
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 140px; resize: vertical;
+             font: 13px/1.55 "SFMono-Regular", Consolas, monospace; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  button { background: var(--panel2); color: var(--fg);
+           border: 1px solid var(--line); padding: 9px 16px;
+           border-radius: 6px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--err); }
+  button.danger:hover { border-color: var(--err); }
+  .result { margin-top: 10px; padding: 9px 12px; border-radius: 6px;
+            font-size: 13px; display: none; }
+  .result.ok { display: block; background: rgba(61,220,132,.1);
+               border: 1px solid rgba(61,220,132,.3); }
+  .result.err { display: block; background: rgba(255,95,109,.1);
+                border: 1px solid rgba(255,95,109,.3); }
+  .tpl-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px;
+    margin-bottom: 8px; background: var(--panel2);
+  }
+  .tpl-item .name { flex: 1; font-weight: 500; }
+  .tpl-item .ts { color: var(--dim); font-size: 12px; }
+  .tpl-item .actions { display: flex; gap: 6px; }
+  .tpl-item .actions button { padding: 6px 10px; font-size: 12px; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: -6px;
+          margin-bottom: 12px; line-height: 1.5; }
+  code { background: var(--panel2); padding: 1px 5px; border-radius: 3px;
+         font-size: 12px; }
+</style>
+<link rel="stylesheet" href="/_nav.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Шаблоны ответов</h1>
+    <a href="/mail_chat.html">← к чату</a>
+  </header>
+
+  <div class="panel">
+    <h2>Существующие шаблоны</h2>
+    <div id="list">Загружаю…</div>
+  </div>
+
+  <div class="panel">
+    <h2>Новый / редактировать</h2>
+    <div class="field">
+      <label>Название</label>
+      <input id="name" placeholder="например: короткий-ответ">
+    </div>
+    <div class="field">
+      <label>Префикс темы (необязательно)</label>
+      <input id="subjectPrefix" placeholder="например: Re: {subject}">
+    </div>
+    <div class="field">
+      <label>Тело письма</label>
+      <textarea id="body" placeholder="Здравствуйте, {from_name}!
+
+Ваше письмо «{subject}» получено. Отвечу в течение рабочего дня.
+
+—
+С уважением"></textarea>
+    </div>
+    <div class="hint">
+      Плейсхолдеры: <code>{from_name}</code> · <code>{from_addr}</code>
+      · <code>{subject}</code> · <code>{date}</code>.
+    </div>
+    <div class="btns">
+      <button id="saveBtn" class="primary">Сохранить</button>
+      <button id="clearBtn">Очистить форму</button>
+    </div>
+    <div class="result" id="result"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function esc(s) {
+  return String(s || "").replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+async function load() {
+  try {
+    const r = await fetch("/api/mail_templates_list");
+    const d = await r.json();
+    render(d.items || []);
+  } catch (e) { $("list").textContent = "Ошибка: " + e.message; }
+}
+function render(items) {
+  if (!items.length) {
+    $("list").innerHTML = '<div class="hint">Пока нет шаблонов.</div>';
+    return;
+  }
+  $("list").innerHTML = items.map(t => `
+    <div class="tpl-item">
+      <div class="name">${esc(t.name)}</div>
+      <div class="ts">${esc((t.ts || "").replace("T", " ").slice(0, 16))}</div>
+      <div class="actions">
+        <button data-edit="${esc(t.name)}">Изменить</button>
+        <button class="danger" data-del="${esc(t.name)}">Удалить</button>
+      </div>
+    </div>`).join("");
+  document.querySelectorAll("[data-edit]").forEach(b => {
+    b.onclick = () => editTemplate(b.dataset.edit, items);
+  });
+  document.querySelectorAll("[data-del]").forEach(b => {
+    b.onclick = () => deleteTemplate(b.dataset.del);
+  });
+}
+function editTemplate(name, items) {
+  const t = items.find(x => x.name === name);
+  if (!t) return;
+  $("name").value = t.name;
+  $("subjectPrefix").value = t.subject_prefix || "";
+  $("body").value = t.body || "";
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+async function deleteTemplate(name) {
+  if (!confirm(`Удалить шаблон «${name}»?`)) return;
+  try {
+    const r = await fetch("/api/mail_template_delete", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    load();
+  } catch (e) { alert("Не удалилось: " + e.message); }
+}
+$("saveBtn").onclick = async () => {
+  $("result").className = "result";
+  try {
+    const r = await fetch("/api/mail_template_save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("name").value,
+        subject_prefix: $("subjectPrefix").value,
+        body: $("body").value,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+    $("result").className = "result ok";
+    $("result").textContent = "✅ Сохранено.";
+    load();
+  } catch (e) {
+    $("result").className = "result err";
+    $("result").textContent = "❌ " + e.message;
+  }
+};
+$("clearBtn").onclick = () => {
+  $("name").value = "";
+  $("subjectPrefix").value = "";
+  $("body").value = "";
+  $("result").className = "result";
+};
+load();
+</script>
+<script src="/_nav.js"></script>
+</body>
+</html>
