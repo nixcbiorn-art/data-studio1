@@ -579,7 +579,7 @@ redcat/quality/crosschecks.py  — сквозные проверки целос�
 config/sources/*.json (корень config/) — описания API-источников
 redcat/data/storage.py         — выгрузка в SQLite / Parquet / Excel
 redcat/quality/anomalies.py    — поиск аномалий
-redcat/quality/quality.py      — профиль данных и дрейф схемы
+redcat/quality/drift.py        — профиль данных и дрейф схемы
 redcat/data/run_stats.py       — метрики запусков
 redcat/reporting/report_html.py — статический HTML-дашборд
 
