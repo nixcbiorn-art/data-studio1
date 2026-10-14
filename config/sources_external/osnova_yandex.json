@@ -1,0 +1,116 @@
+{
+  "key": "osnova_yandex",
+  "title": "ГК Основа — квартиры (YRL XML)",
+  "external": true,
+  "format": "xml",
+  "xml_record_tag": "offer",
+  "url": "https://crmexportdata.gk-osnova.ru/ExportData/ExportToYandex",
+  "page_size": 1000000,
+  "data_path": [
+    "items"
+  ],
+  "total_path": [
+    "total"
+  ],
+  "flatten_depth": 3,
+  "id_field": "internal_id",
+  "name_field": "building_name",
+  "mapping": {
+    "internal_id": "internal-id",
+    "building_name": "building-name",
+    "building_state": "building-state",
+    "building_phase": "building-phase",
+    "yandex_building_id": "yandex-building-id",
+    "window_view": "window-view",
+    "bathroom_unit": "bathroom-unit",
+    "garage_type": "garage-type",
+    "type": "type",
+    "property_type": "property-type",
+    "category": "category",
+    "apartments": "apartments",
+    "studio": "studio",
+    "url": "url",
+    "price": "price.value",
+    "currency": "price.currency",
+    "area": "area.value",
+    "area_unit": "area.unit",
+    "floor": "floor",
+    "floors_total": "floors-total",
+    "creation_date": "creation-date",
+    "last_update_date": "last-update-date"
+  },
+  "numeric_fields": [
+    "price",
+    "area",
+    "floor",
+    "floors_total",
+    "apartments"
+  ],
+  "group_fields": [
+    "building_name",
+    "building_state",
+    "building_phase"
+  ],
+  "track_fields": [
+    "price",
+    "area",
+    "building_state"
+  ],
+  "positive_fields": [
+    "price",
+    "area"
+  ],
+  "required_fields": [
+    "internal_id",
+    "price",
+    "area"
+  ],
+  "pagination_strategy": "stop",
+  "parse_strategy": "xml_tag",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Referer": "https://gk-osnova.ru/"
+  },
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "building_name",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "price": "price",
+      "area": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "Основа"
+      },
+      {
+        "field": "object_type",
+        "op": "notin",
+        "values": [
+          "Машино-место",
+          "Кладовка",
+          "Коммерческая недвижимость"
+        ]
+      }
+    ],
+    "min_group_size": 5,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "filter_left": [
+      {
+        "field": "category",
+        "op": "notin",
+        "values": [
+          "гараж",
+          "коммерческая"
+        ]
+      }
+    ]
+  }
+}

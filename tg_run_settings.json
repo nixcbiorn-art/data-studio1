@@ -1,0 +1,15 @@
+{
+  "sources": [
+    "a101_apartments",
+    "apartments",
+    "fsk_apartments",
+    "housing_complexes",
+    "jcat_lsr_apartments_normalized",
+    "regulations",
+    "tariffs"
+  ],
+  "excel": false,
+  "no_anomalies": false,
+  "concurrency": 0,
+  "sensitivity": 0.0
+}

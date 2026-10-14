@@ -1,0 +1,33 @@
+{
+  "key": "osnova_projects",
+  "title": "ГК Основа — справочник ЖК",
+  "external": true,
+  "url": "https://gk-osnova.ru/api/building-objects/projects",
+  "data_path": [
+    "data"
+  ],
+  "id_field": "id",
+  "name_field": "name",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://gk-osnova.ru/"
+  },
+  "mapping": {
+    "id": "id",
+    "uuid": "uuid",
+    "name": "name"
+  },
+  "group_fields": [
+    "name"
+  ],
+  "track_fields": [
+    "name"
+  ],
+  "required_fields": [
+    "id",
+    "name"
+  ],
+  "pagination_strategy": "stop",
+  "parse_strategy": "json_path"
+}

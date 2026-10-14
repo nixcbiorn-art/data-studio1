@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сохранённые письма · RedCat</title>
+<link rel="stylesheet" href="/_nav.css">
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b;
+          --fg:#e6e8ec; --dim:#8b93a7; --accent:#4c8dff;
+          --ok:#3ddc84; --warn:#ffb347; --err:#ff5f6d; --line:#262b36; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  header { display:flex; align-items:baseline; gap:16px;
+           margin-bottom:18px; flex-wrap:wrap; }
+  header h1 { font-size:20px; margin:0; }
+  header a { color:var(--dim); text-decoration:none; font-size:13px; }
+  header a:hover { color:var(--fg); }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+  .stat { background:var(--panel); border:1px solid var(--line);
+          padding:8px 14px; border-radius:8px; font-size:13px; }
+  .stat b { color:var(--accent); font-size:16px; margin-left:4px; }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:10px; padding:16px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase;
+              letter-spacing:.05em; color:var(--dim);
+              margin:0 0 12px; font-weight:600; }
+  .search {
+    display:flex; gap:8px; margin-bottom:12px;
+  }
+  .search input {
+    background:var(--panel2); border:1px solid var(--line);
+    color:var(--fg); padding:9px 12px; border-radius:6px;
+    font:inherit; flex:1;
+  }
+  .search button {
+    background:var(--accent); border:1px solid var(--accent);
+    color:#fff; padding:9px 18px; border-radius:6px;
+    cursor:pointer; font:inherit;
+  }
+  table { width:100%; border-collapse:collapse; }
+  table th, table td {
+    text-align:left; padding:9px 10px;
+    border-bottom:1px solid var(--line); font-size:13px;
+    vertical-align:top;
+  }
+  table th { color:var(--dim); font-weight:500; font-size:12px;
+             text-transform:uppercase; letter-spacing:.03em; }
+  tr:hover td { background:rgba(76,141,255,.04); }
+  .subj { color:var(--fg); font-weight:500; }
+  .from { color:var(--dim); font-size:12px; margin-top:3px; }
+  .tags { color:var(--warn); font-size:12px; }
+  .note { color:var(--dim); font-size:12px; font-style:italic;
+          margin-top:2px; }
+  .size { color:#6a7286; font-size:11.5px; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .actions button, .actions a {
+    background:var(--panel2); border:1px solid var(--line);
+    color:var(--fg); padding:5px 10px; border-radius:5px;
+    cursor:pointer; font:inherit; font-size:12px;
+    text-decoration:none;
+  }
+  .actions a:hover, .actions button:hover { border-color:var(--accent); }
+  .actions button.danger { color:var(--err); }
+  .empty { padding:20px; text-align:center; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💾 Сохранённые письма</h1>
+    <a href="/mail_chat.html">← Почта</a>
+    <a href="/mail_tasks.html">📋 Задачи</a>
+  </header>
+
+  <div class="stats" id="stats">—</div>
+
+  <div class="panel">
+    <h2>Поиск</h2>
+    <div class="search">
+      <input id="q" type="text"
+             placeholder="Тема, отправитель, теги, заметка…">
+      <button id="btnSearch">Найти</button>
+      <button id="btnClear" style="background:var(--panel2);
+              border-color:var(--line);color:var(--fg);">Сбросить</button>
+    </div>
+    <div id="list">Загрузка…</div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function fmtSize(n) {
+  if (!n) return "—";
+  if (n >= 1048576) return (n/1048576).toFixed(1) + " МБ";
+  if (n >= 1024) return Math.round(n/1024) + " КБ";
+  return n + " Б";
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch("/api/mail_saved_list?limit=1");
+    const d = await r.json();
+    const s = d.stats || {};
+    $("stats").innerHTML =
+      `<div class="stat">Всего<b>${s.count||0}</b></div>
+       <div class="stat">Размер<b>${fmtSize(s.size)}</b></div>
+       <div class="stat">Последнее<b>${
+         esc((s.last||"—").replace("T"," "))}</b></div>`;
+  } catch (_) {}
+}
+
+async function loadList() {
+  const box = $("list");
+  box.innerHTML = "Загрузка…";
+  try {
+    const q = $("q").value.trim();
+    const r = await fetch("/api/mail_saved_list?q=" + encodeURIComponent(q));
+    const d = await r.json();
+    const items = d.items || [];
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">Писем нет.</div>';
+      return;
+    }
+    let html = `<table><thead><tr>
+      <th style="width:35%;">Письмо</th>
+      <th>Дата</th><th>Размер</th><th>Заметка / теги</th><th></th>
+    </tr></thead><tbody>`;
+    for (const s of items) {
+      html += `<tr data-id="${s.id}">
+        <td>
+          <div class="subj">${esc(s.subject || "(без темы)")}</div>
+          <div class="from">от ${esc(s.from_addr || "?")}</div>
+        </td>
+        <td>${esc((s.date || "").slice(0,16).replace("T"," "))}</td>
+        <td class="size">${fmtSize(s.size)}</td>
+        <td>
+          ${s.tags ? '<div class="tags">' + esc(s.tags) + '</div>' : ''}
+          ${s.note ? '<div class="note">' + esc(s.note) + '</div>' : ''}
+          <button onclick="editMeta(${s.id}, ${JSON.stringify(s.tags||'')}, ${JSON.stringify(s.note||'')})"
+                  style="margin-top:4px;font-size:11px;padding:3px 8px;
+                         background:transparent;border:1px dashed var(--line);
+                         color:var(--dim);border-radius:4px;cursor:pointer;">
+            + метка/заметка
+          </button>
+        </td>
+        <td class="actions">
+          <a href="/api/mail_saved_file?id=${s.id}"
+             download title="Скачать .eml">⬇</a>
+          <button onclick="delSaved(${s.id})" class="danger"
+                  title="Удалить">✕</button>
+        </td>
+      </tr>`;
+    }
+    html += "</tbody></table>";
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<div class="empty" style="color:var(--err)">
+      Ошибка: ${esc(e.message)}</div>`;
+  }
+}
+
+async function editMeta(id, tags, note) {
+  const t = prompt("Теги (через запятую):", tags || "");
+  if (t === null) return;
+  const n = prompt("Заметка:", note || "");
+  if (n === null) return;
+  await fetch("/api/mail_saved_update", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id, tags: t, note: n})
+  });
+  loadList();
+}
+
+async function delSaved(id) {
+  if (!confirm("Удалить письмо и .eml-файл?")) return;
+  await fetch("/api/mail_saved_delete", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id})
+  });
+  loadList(); loadStats();
+}
+
+$("btnSearch").onclick = loadList;
+$("btnClear").onclick = () => { $("q").value = ""; loadList(); };
+$("q").addEventListener("keydown", e => {
+  if (e.key === "Enter") loadList();
+});
+
+loadStats(); loadList();
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "key": "fsk_complexes",
+  "title": "ФСК/ДСК — справочник ЖК",
+  "external": true,
+  "url": "https://fsk.ru/api/v3/flats?city=1&client=FSK,DSK&sort=price&order=1",
+  "page_size": 100,
+  "page_size_param": "limit",
+  "page_number_param": "page",
+  "data_path": ["items"],
+  "preprocess": "fsk_unique_projects",
+  "id_field": "slug",
+  "name_field": "title",
+  "mapping": {
+    "id": "_id",
+    "slug": "slug",
+    "title": "title",
+    "complex_class": "complex_class",
+    "city": "city"
+  },
+  "group_fields": ["complex_class"],
+  "required_fields": ["slug"]
+}

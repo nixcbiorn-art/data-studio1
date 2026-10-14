@@ -1,0 +1,128 @@
+{
+  "key": "etalon_apartments",
+  "title": "Etalon Group — квартиры (JSON API)",
+  "external": true,
+  "format": "json",
+  "url": "https://newsite.etalongroup.ru/api/filter/msk/flat/list/?pagination=%7B%22haveItem%22:true,%22page%22:1,%22object%22:null,%22offset%22:0,%22limit%22:900%7D&getAuctionSlider=false",
+  "page_size": 900,
+  "data_path": [
+    "data",
+    "itemList"
+  ],
+  "total_path": [
+    "data",
+    "pagination",
+    "total"
+  ],
+  "flatten_depth": 3,
+  "id_field": "id",
+  "name_field": "title",
+  "mapping": {
+    "id": "id",
+    "title": "title",
+    "title_prefix": "titleDataList.prefix",
+    "title_type": "titleDataList.type",
+    "title_rooms": "titleDataList.rooms",
+    "title_number": "titleDataList.number",
+    "img": "img",
+    "link": "link",
+    "price": "price",
+    "price_total": "priceTotal",
+    "price_special": "priceSpecial",
+    "area": "area",
+    "floor": "floor",
+    "object_title": "objectTitle",
+    "district": "district",
+    "walk_type": "walkType",
+    "subway_id": "subway.id",
+    "subway_name": "subway.name",
+    "subway_color": "subway.color",
+    "subway_page_link": "subway.pageLink",
+    "subway_time_wall": "subway.timeWall",
+    "subway_time_transport": "subway.timeTransport",
+    "subway_time": "subway.time",
+    "delivery_name": "deliveryName",
+    "is_booked": "isBooked",
+    "is_apart": "isApart",
+    "finishing": "finishing"
+  },
+  "numeric_fields": [
+    "price",
+    "price_total",
+    "price_special",
+    "area",
+    "floor",
+    "title_rooms",
+    "subway_time_wall",
+    "subway_time_transport",
+    "subway_time"
+  ],
+  "group_fields": [
+    "object_title",
+    "title_type",
+    "district"
+  ],
+  "track_fields": [
+    "price",
+    "price_total",
+    "is_booked"
+  ],
+  "positive_fields": [
+    "price",
+    "area"
+  ],
+  "required_fields": [
+    "id",
+    "price",
+    "area"
+  ],
+  "pagination_strategy": "offset",
+  "parse_strategy": "json_path",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Referer": "https://etalongroup.ru/"
+  },
+  "cross_check": {
+    "with_table": "apartments",
+    "on_left": "object_title",
+    "on_right": "housing_complex_name",
+    "metrics": {
+      "price": "price",
+      "area": "total_area"
+    },
+    "agg": "median",
+    "normalize_key": true,
+    "filter_right": [
+      {
+        "field": "developer_name",
+        "op": "contains",
+        "value": "Эталон"
+      },
+      {
+        "field": "object_type",
+        "op": "notin",
+        "values": [
+          "Машино-место",
+          "Кладовка",
+          "Коммерческая недвижимость"
+        ]
+      }
+    ],
+    "min_group_size": 5,
+    "thresholds": {
+      "ok": 10,
+      "warn": 20
+    },
+    "filter_left": [
+      {
+        "field": "title_type",
+        "op": "notin",
+        "values": [
+          "Машино-место",
+          "Кладовка",
+          "Коммерческая недвижимость"
+        ]
+      }
+    ]
+  }
+}

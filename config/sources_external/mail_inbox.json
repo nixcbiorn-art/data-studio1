@@ -1,0 +1,33 @@
+{
+  "key": "mail_inbox",
+  "title": "Почта — входящие",
+  "external": true,
+  "url": "imap://{imap_host}:993/INBOX?since_days=90&limit=500",
+  "fetch_strategy": "imap",
+  "pagination_strategy": "stop",
+  "page_size_param": "",
+  "page_number_param": "",
+  "data_path": [
+    "items"
+  ],
+  "total_path": [
+    "total"
+  ],
+  "id_field": "message_id",
+  "name_field": "subject",
+  "numeric_fields": [
+    "size",
+    "attachments",
+    "uid"
+  ],
+  "group_fields": [
+    "from_addr",
+    "folder"
+  ],
+  "track_fields": [
+    "seen"
+  ],
+  "required_fields": [
+    "message_id"
+  ]
+}

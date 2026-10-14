@@ -1,0 +1,45 @@
+/* _nav.css — единая навигация mail-страниц */
+#rc-nav {
+  position: fixed; top: 0; left: 0; right: 0; height: 46px;
+  display: flex; align-items: center; gap: 14px; padding: 0 20px;
+  background: #171a21; border-bottom: 1px solid #262b36;
+  z-index: 9999; box-sizing: border-box;
+  font: 13.5px/1 -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+#rc-nav .brand {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: #e6e8ec; text-decoration: none; font-weight: 600;
+  font-size: 14px; padding-right: 14px; border-right: 1px solid #262b36;
+  white-space: nowrap;
+}
+#rc-nav .brand:hover { color: #4c8dff; }
+#rc-nav .brand .logo { font-size: 16px; }
+#rc-nav .links {
+  display: flex; gap: 3px; flex-wrap: nowrap; min-width: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+#rc-nav .links::-webkit-scrollbar { display: none; }
+#rc-nav .links a {
+  color: #8b93a7; text-decoration: none; padding: 7px 12px;
+  border-radius: 6px; font-size: 13px; white-space: nowrap;
+  transition: color .12s, background .12s;
+}
+#rc-nav .links a:hover {
+  color: #e6e8ec; background: rgba(76, 141, 255, .08);
+}
+#rc-nav .links a.active {
+  color: #e6e8ec; background: rgba(76, 141, 255, .15);
+}
+#rc-nav .spacer { flex: 1; }
+#rc-nav .back {
+  color: #8b93a7; text-decoration: none; font-size: 12.5px;
+  padding: 6px 11px; border: 1px solid #262b36; border-radius: 6px;
+  white-space: nowrap; transition: color .12s, border-color .12s;
+}
+#rc-nav .back:hover { color: #e6e8ec; border-color: #4c8dff; }
+body.rc-has-nav { padding-top: 46px !important; box-sizing: border-box; }
+body.rc-has-nav.rc-flex-column { height: 100vh !important; }
+@media print {
+  #rc-nav { display: none !important; }
+  body.rc-has-nav { padding-top: 0 !important; }
+}
