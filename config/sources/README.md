@@ -29,7 +29,7 @@
    один запрос (обычно ~10 000), общий список обрывается. Разбивка по типам
    делает каждый запрос меньше потолка. Понять, что это ваш случай:
    ```
-   python redcat_scraper.py --diagnose housing_complexes
+   python -m redcat.collection.redcat_scraper --diagnose housing_complexes
    ```
    Проверка прямо скажет, сколько записей заявляет API и упрётся ли обход
    в лимит.
